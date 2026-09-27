@@ -1,0 +1,16 @@
+{
+  "name": "metatron-tools",
+  "private": true,
+  "type": "module",
+  "description": "Checks for the views that cargo test cannot run: real drawing in a real DOM.",
+  "scripts": {
+    "check": "node render-check.mjs"
+  },
+  "devDependencies": {
+    "canvas": "^3.0.0",
+    "jsdom": "^26.0.0"
+  },
+  "allowScripts": {
+    "canvas@3.2.3": true
+  }
+}
