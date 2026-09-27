@@ -1,7 +1,7 @@
 //! Acceptance tests for `specs/04-conformance-rules.md`.
 
 use metatron::classify::{classify, Config};
-use metatron::model::Symbol;
+use metatron::model::{Model, Symbol};
 use metatron::rules::{check, Finding, Kind, Report, Status, Tier};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,19 @@ fn run(dir: PathBuf) -> Report {
     let m = metatron::scan(&dir).expect("scan failed");
     let cfg = Config::load(&dir).expect("config failed");
     let c = classify(&m, &cfg);
-    check(&m, &cfg, &c)
+    let churn = metatron::churn::Churn::measure(&dir, &cfg.root, &m);
+    check(&m, &cfg, &c, &churn)
+}
+
+/// Churn for a model, measured against the crate it came from. Fixtures are
+/// not in git, so this is almost always a stated absence — which is the point:
+/// a churn rule over a fixture is `Unevaluable` and says why, rather than
+/// reporting that the fixture has no hot files.
+fn churn_of(m: &Model, cfg: &Config) -> metatron::churn::Churn {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(m.project.replace('_', "-"));
+    metatron::churn::Churn::measure(&dir, &cfg.root, m)
 }
 
 fn fixture(name: &str) -> Report {
@@ -59,6 +71,10 @@ fn every_decidable_rule_evaluates_against_the_conforming_crate() {
         .iter()
         .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
         .map(|f| f.id)
+        // Same exemption as `tests/architecture.rs`, same reason: this rule's
+        // premise is git history and a fixture directory has none. It is
+        // evaluated against this repository in `tests/churn.rs`.
+        .filter(|id| *id != "churn-concentration")
         .collect();
     assert!(
         dark.is_empty(),
@@ -73,7 +89,22 @@ fn the_inversion_arrow_is_counted_as_the_architecture_working() {
     let r = fixture("ports");
     let f = rule(&r, "dependency-inversion");
     assert_eq!(f.status, Status::Upheld);
-    assert_eq!(f.instances.len(), 5, "{:?}", f.instances);
+
+    // Five in production code and two in `tests/clock.rs`, which fakes the clock
+    // and the note store. A test fake is a real inversion and the rule counts
+    // it — the split is asserted rather than folded into one number, because a
+    // bare 7 would hide the fact that two of them are test code and a reader
+    // would have to re-derive that to know what the rule is measuring.
+    let (fakes, production): (Vec<_>, Vec<_>) = f
+        .instances
+        .iter()
+        .partition(|i| i.file.starts_with("../tests/"));
+    assert_eq!(production.len(), 5, "{production:?}");
+    assert_eq!(fakes.len(), 2, "{fakes:?}");
+    assert!(
+        fakes.iter().all(|i| i.to.contains("ports::")),
+        "a test fake inverts a domain port: {fakes:?}"
+    );
 }
 
 // ------------------------------------------------------- the leaky crate
@@ -299,12 +330,12 @@ fn the_workspace_split_hands_three_rules_to_the_compiler() {
     let m = metatron::scan(&dir).unwrap();
     let mut cfg = Config::load(&dir).unwrap();
 
-    let a = check(&m, &cfg, &classify(&m, &cfg));
+    let a = check(&m, &cfg, &classify(&m, &cfg), &churn_of(&m, &cfg));
     assert_eq!(a.compiler_enforced, 0);
     assert_eq!(rule(&a, "domain-no-io").status, Status::Violated);
 
     cfg.crate_graph = "B".into();
-    let b = check(&m, &cfg, &classify(&m, &cfg));
+    let b = check(&m, &cfg, &classify(&m, &cfg), &churn_of(&m, &cfg));
     assert_eq!(b.compiler_enforced, 3);
     let f = rule(&b, "domain-no-io");
     assert_eq!(f.tier, Tier::Compiler);
@@ -404,6 +435,16 @@ fn adding_a_rule_without_choosing_its_enforcement_fails_this_test() {
         // Decidable, and deliberately a warning: one fake per port is a
         // convention a team adopts over a refactor, not a property of a build.
         "port-has-fake",
+        // Spec 08. Both are decidable on premises the model and the repository
+        // carry, and both warn: the premise is knowable, the judgment is not.
+        // `untested-port` fires on every port of a crate whose suite this tool
+        // did not scan, and `churn-concentration` fires hardest on the file
+        // someone is actively working on. A build that fails there teaches the
+        // team to ignore the tool. Both are recorded in every report and in the
+        // baseline either way, and promoting either is a deliberate edit to
+        // `rules.rs`, to this list, and to spec 08.
+        "untested-port",
+        "churn-concentration",
         // Heuristics. These can never gate; see the test below.
         "store-decides",
         "handler-decides",
@@ -475,7 +516,7 @@ fn a_delegated_rule_does_not_gate_even_when_marked_gating() {
     let m = metatron::scan(&dir).unwrap();
     let mut cfg = Config::load(&dir).unwrap();
     cfg.crate_graph = "B".into();
-    let report = check(&m, &cfg, &classify(&m, &cfg));
+    let report = check(&m, &cfg, &classify(&m, &cfg), &churn_of(&m, &cfg));
     let f = rule(&report, "domain-no-io");
     assert_eq!(f.kind, Kind::Decidable);
     assert_eq!(f.status, Status::Delegated);

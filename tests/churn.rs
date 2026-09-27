@@ -240,3 +240,49 @@ fn an_unavailable_measurement_has_a_reason_by_construction() {
     assert!(c.top_decile().is_empty());
     assert_eq!(c.total_commits(), 0);
 }
+
+// --------------------------------- the rule the architecture test cannot check
+
+/// The exemption in `tests/architecture.rs` is a debt with an owner, and this
+/// test is the repayment: `churn-concentration` is decidable, and against a
+/// repository with a history it says something. A fixture directory could never
+/// have shown that.
+#[test]
+fn the_churn_rule_is_decidable_against_a_real_repository() {
+    let (churn, model) = measure(Path::new("."));
+    assert!(
+        churn.enough_history(),
+        "this repository should have a history: {} commits, {}",
+        churn.total_commits(),
+        churn.reason
+    );
+
+    let dir = Path::new(".");
+    let cfg = metatron::classify::Config::load(dir).expect("config failed");
+    let classified = metatron::classify::classify(&model, &cfg);
+    let report = metatron::rules::check(&model, &cfg, &classified, &churn);
+
+    let f = report
+        .findings
+        .iter()
+        .find(|f| f.id == "churn-concentration")
+        .expect("the rule is in the table");
+    assert_eq!(f.kind, metatron::rules::Kind::Decidable);
+    assert_ne!(
+        f.status,
+        metatron::rules::Status::Unevaluable,
+        "decidable and unevaluable against a real history: {}",
+        f.because
+    );
+    assert!(!f.gates(), "advisory, and the reason is in the spec");
+
+    // Whatever it reports, the window travels with it: a bound whose span is
+    // not in the string is a number that means something different next month.
+    for i in &f.instances {
+        assert!(
+            i.detail.contains("commit(s) since"),
+            "the instance does not carry its window: {}",
+            i.detail
+        );
+    }
+}
