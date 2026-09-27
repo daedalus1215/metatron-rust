@@ -104,8 +104,10 @@ fn a_dual_target_crate_scans_both_roots() {
     assert_eq!(sym(&m, "greet_all").kind, SymbolKind::Fn);
 
     // And one from the binary, so the test cannot pass by scanning the crate
-    // root alone and calling it a library.
-    assert_eq!(sym(&m, "main").kind, SymbolKind::Fn);
+    // root alone and calling it a library. The binary is not the crate root —
+    // the library is — so its symbols carry a synthetic prefix that no path in
+    // source can collide with.
+    assert_eq!(sym(&m, "(bin:main)::main").kind, SymbolKind::Fn);
 }
 
 #[test]

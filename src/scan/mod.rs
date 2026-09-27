@@ -32,9 +32,46 @@ struct ModuleCtx {
     uses: HashMap<String, String>,
 }
 
+/// One compilation unit: a root file, and the module path its symbols hang off.
+///
+/// Exactly one target is the crate root and gets an empty prefix, which is what
+/// makes its symbols crate-root-relative — `Greeter`, not `lib::Greeter` — and
+/// the only value that yields a `(crate)` node. The root is the library if the
+/// crate has one, otherwise the default binary, so a crate with only
+/// `src/main.rs` keeps exactly the ids it always had.
+///
+/// Any *further* target gets a synthetic prefix so its symbols cannot collide
+/// with the root's, and so a call inside it still resolves:
+/// `join("(bin:foo)", "helper")` finds the symbol the walk recorded under that
+/// same id.
+struct Target {
+    mod_id: String,
+    path: PathBuf,
+}
+
+
+impl Target {
+    fn root(path: PathBuf) -> Self {
+        Target {
+            mod_id: String::new(),
+            path,
+        }
+    }
+
+    fn extra(name: &str, path: PathBuf) -> Self {
+        Target {
+            mod_id: format!("(bin:{name})"),
+            path,
+        }
+    }
+}
+
 pub struct Scanner {
     root: PathBuf,
     project: String,
+    /// `project` with `-` folded to `_`, which is how a crate names itself in
+    /// its own source. Cargo does the folding; we have to match it.
+    self_crate: String,
     extern_crates: BTreeSet<String>,
     symbols: Vec<Symbol>,
     raw_edges: Vec<RawEdge>,
@@ -59,9 +96,11 @@ impl Scanner {
             .with_context(|| format!("no such directory: {}", dir.display()))?;
         let manifest = dir.join("Cargo.toml");
         let (project, extern_crates) = read_manifest(&manifest)?;
+        let self_crate = project.replace('-', "_");
         Ok(Self {
             root: dir.join("src"),
             project,
+            self_crate,
             extern_crates,
             symbols: Vec::new(),
             raw_edges: Vec::new(),
@@ -76,14 +115,85 @@ impl Scanner {
         })
     }
 
-    pub fn run(mut self) -> Result<Model> {
-        let entry = ["main.rs", "lib.rs"]
-            .iter()
-            .map(|f| self.root.join(f))
-            .find(|p| p.exists())
-            .with_context(|| format!("no main.rs or lib.rs under {}", self.root.display()))?;
+    /// Every compilation unit in the crate.
+    ///
+    /// A crate is not a file. One with a library and a binary has two roots,
+    /// and taking the first one found means analysing a fraction of the
+    /// source and reporting the result as though it were the whole crate.
+    /// Spec 07.
+    ///
+    /// The first entry is the crate root; the rest are extra targets.
+    fn targets(&self) -> Vec<Target> {
+        let src = &self.root;
+        let mut root: Option<PathBuf> = None;
+        let mut extra: Vec<(String, PathBuf)> = Vec::new();
 
-        self.walk_module("", &entry, true)?;
+        // A library is the crate root when there is one: a binary can reach
+        // everything in it, nothing can reach into a binary.
+        let lib = src.join("lib.rs");
+        if lib.exists() {
+            root = Some(lib);
+        }
+        let main = src.join("main.rs");
+        if main.exists() {
+            match &root {
+                None => root = Some(main),
+                Some(_) => extra.push(("main".into(), main)),
+            }
+        }
+
+        // `src/bin/*.rs` and `src/bin/<name>/main.rs` are binaries cargo
+        // discovers without being told about them.
+        if let Ok(entries) = std::fs::read_dir(src.join("bin")) {
+            let mut found: Vec<PathBuf> =
+                entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+            found.sort();
+            for path in found {
+                let (name, entry) = if path.is_file()
+                    && path.extension().and_then(|e| e.to_str()) == Some("rs")
+                {
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("bin")
+                        .to_string();
+                    (stem, path)
+                } else if path.is_dir() {
+                    let stem = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("bin")
+                        .to_string();
+                    let entry = path.join("main.rs");
+                    if !entry.exists() {
+                        continue;
+                    }
+                    (stem, entry)
+                } else {
+                    continue;
+                };
+                match &root {
+                    None => root = Some(entry),
+                    Some(_) => extra.push((name, entry)),
+                }
+            }
+        }
+
+        let mut out: Vec<Target> = root.map(Target::root).into_iter().collect();
+        out.extend(extra.into_iter().map(|(n, p)| Target::extra(&n, p)));
+        out
+    }
+
+    pub fn run(mut self) -> Result<Model> {
+        let targets = self.targets();
+        anyhow::ensure!(
+            !targets.is_empty(),
+            "no lib.rs, main.rs, or src/bin/* under {}",
+            self.root.display()
+        );
+        for t in &targets {
+            self.walk_module(&t.mod_id, &t.path, true)?;
+        }
 
         let (edges, externs) = self.resolve();
 
@@ -665,12 +775,15 @@ impl Scanner {
 
     fn resolve(&mut self) -> (Vec<Edge>, BTreeMap<String, usize>) {
         let index: BTreeSet<String> = self.symbols.iter().map(|s| s.id.clone()).collect();
+        // Synthetic root ids — `(crate)`, `(bin:main)` — are never written in
+        // source, so matching a path against them can only produce a false hit.
         let mods: BTreeSet<String> = self
             .modules
             .iter()
             .map(|m| m.id.clone())
-            .filter(|m| m != "(crate)")
+            .filter(|m| !m.starts_with('('))
             .collect();
+        let self_crate = self.self_crate.clone();
 
         let mut externs: BTreeMap<String, usize> = BTreeMap::new();
         let mut edges = Vec::new();
@@ -697,7 +810,7 @@ impl Scanner {
                 .cloned()
                 .unwrap_or_default();
 
-            match resolve_path(&re.raw, &re.module, &uses, &index, &mods) {
+            match resolve_path(&re.raw, &re.module, &uses, &index, &mods, &self_crate) {
                 Res::Local(id) => edges.push(Edge {
                     from: re.from.clone(),
                     to: EdgeTarget::Local { id },
@@ -740,7 +853,14 @@ impl Scanner {
         let ctx = std::mem::take(&mut self.mod_ctx);
         for b in &mut self.impls {
             let uses = ctx.get(&b.module).map(|c| c.uses.clone()).unwrap_or_default();
-            b.trait_id = match resolve_path(&b.trait_path, &b.module, &uses, &index, &mods_c) {
+            b.trait_id = match resolve_path(
+                &b.trait_path,
+                &b.module,
+                &uses,
+                &index,
+                &mods_c,
+                &self_crate,
+            ) {
                 Res::Local(id) => Some(id),
                 Res::Path(_) => None,
             };
@@ -819,6 +939,7 @@ fn resolve_path(
     uses: &HashMap<String, String>,
     index: &BTreeSet<String>,
     mods: &BTreeSet<String>,
+    self_crate: &str,
 ) -> Res {
     let raw = raw.trim_start_matches("::");
     let segs: Vec<&str> = raw.split("::").collect();
@@ -834,9 +955,22 @@ fn resolve_path(
         "crate" => rest(1),
         "self" => join(module, &rest(1)),
         "super" => join(&parent_of(module).unwrap_or_default(), &rest(1)),
+        // A binary reaches its own library by the crate's name. That name is
+        // not a dependency and not a module, so without this arm it falls
+        // through to `is_architectural` and becomes a diagnostic about a path
+        // that is perfectly well resolvable.
+        _ if head == self_crate => rest(1),
         _ => {
             if let Some(mapped) = uses.get(head) {
-                let local = mapped.trim_start_matches("crate::").to_string();
+                let mut local = mapped.trim_start_matches("crate::").to_string();
+                // `use dual::greet_all` records `greet_all -> dual::greet_all`.
+                // The crate's own name is not a module, so the prefix has to
+                // come off before the path can be looked up in the crate.
+                if let Some(rest) = local.strip_prefix(self_crate).and_then(|r| r.strip_prefix("::")) {
+                    local = rest.to_string();
+                } else if local == self_crate {
+                    local = String::new();
+                }
                 let expanded = if segs.len() == 1 { local } else { join(&local, &rest(1)) };
                 match lookup(&expanded, index, mods) {
                     Some(id) => return Res::Local(id),
