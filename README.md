@@ -1,7 +1,8 @@
 # metatron-rust
 
 Point it at a Rust crate and get a measured model of its architecture, then
-check that model against [`patterns-rust`](../../patterns-rust/README.md).
+check that model against `patterns-rust`, the layout convention these specs are
+written against.
 
 A Rust rewrite of [`metatron-nestjs`](../metatron-nestjs). Same idea — nothing
 in the output is drawn or written by hand — but the unit of analysis is the
@@ -21,6 +22,7 @@ explains why the target codebases have no architecture yet.
 | 04 conformance rules and enforcement tiers | **implemented** |
 | 05 scorecard, baseline, and `cargo test` | **implemented** |
 | 06 retargeting the views | **implemented** |
+| 07 trustworthiness and self-audit | **implemented** |
 
 ## Try it
 
@@ -38,12 +40,23 @@ metatron scan · arioch
   8 files · 8 modules · 5471 loc
   166 symbols (18 types, 146 fns) · 792 edges
   2 impl bindings
+  coverage 1/83 symbols (1.2%) · 0 ports
+
+  82 symbol(s) matched no pattern, in 8 file(s):
+    main.rs                        16x   e.g. main.rs:16 Cli
+    ui.rs                          16x   e.g. ui.rs:12 render
+    app.rs                         14x   e.g. app.rs:6 TICK_RATE
+    syntax.rs                      14x   e.g. syntax.rs:4 FileType
+    knowledge.rs                    7x   e.g. knowledge.rs:3 Danger
+    registry.rs                     7x   e.g. registry.rs:7 Entry
+    config.rs                       6x   e.g. config.rs:5 CONFIG_OVERRIDE
+    annotations.rs                  2x   e.g. annotations.rs:5 Annotation
+    Add a pattern in metatron.toml, or `metatron classify --verbose` for each one.
 
   externs
     ratatui                      482x
     std::fs                      28x
     std::path                    26x
-    crossterm                    23x
 ```
 
 ## What the model carries

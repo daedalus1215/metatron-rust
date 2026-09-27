@@ -9,10 +9,11 @@ tags: [index, roadmap, rust, ddd]
 
 # Specs
 
-Seven specs. 01-06 written 2026-08-29 and implemented; 07 written 2026-09-26
-and not yet started. A Rust rewrite of [`metatron-nestjs`](../../metatron-nestjs)
-that checks Rust codebases against [`patterns-rust`](../../../patterns-rust/README.md).
-Numbered by dependency, not by importance.
+Seven specs, all written and implemented: 01-06 on 2026-08-29, 07 on 2026-09-26.
+A Rust rewrite of [`metatron-nestjs`](../../metatron-nestjs) that checks Rust
+codebases against `patterns-rust` — the layout convention the rules are written
+against, named throughout but not a checkout beside this one. Numbered by
+dependency, not by importance.
 
 | # | spec | kind | depends on |
 |---|------|------|-----------|
