@@ -153,7 +153,7 @@ pub fn current(report: &Report) -> (BTreeMap<String, Entry>, Vec<Excluded>) {
             });
             continue;
         }
-        if !f.gate {
+        if !f.gates() {
             excluded.push(Excluded {
                 rule: f.id,
                 why: "advisory — warns, does not fail",
@@ -327,7 +327,7 @@ pub fn gating_rules(report: &Report) -> Vec<&'static str> {
     report
         .findings
         .iter()
-        .filter(|f: &&Finding| f.gate)
+        .filter(|f: &&Finding| f.gates())
         .map(|f| f.id)
         .collect()
 }

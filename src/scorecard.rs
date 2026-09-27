@@ -102,12 +102,12 @@ impl Scorecard {
             compiler: f.iter().filter(|x| x.tier == Tier::Compiler).count(),
             metatron: f
                 .iter()
-                .filter(|x| x.gate && x.tier != Tier::Compiler && x.status != Status::Delegated)
+                .filter(|x| x.gates() && x.tier != Tier::Compiler)
                 .count(),
             clippy: f.iter().filter(|x| x.tier == Tier::Clippy).count(),
             advisory: f
                 .iter()
-                .filter(|x| !x.gate && x.tier != Tier::Clippy && x.tier != Tier::Compiler)
+                .filter(|x| !x.gates() && x.tier != Tier::Clippy && x.tier != Tier::Compiler)
                 .count(),
         }
     }

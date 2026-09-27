@@ -318,3 +318,69 @@ fn a_lint_the_toolchain_ships_is_listed_and_not_reimplemented() {
     assert_eq!(f.status, Status::Delegated);
     assert!(f.because.contains("clippy"));
 }
+
+// ------------------------------------------------- who is allowed to gate
+
+#[test]
+fn no_heuristic_and_no_delegated_rule_ever_gates() {
+    // This is the invariant that makes `Finding::gates()` worth having. The
+    // rule table is a list someone appends to, and `gate: true` on a heuristic
+    // would be a typo that turns a rule nobody can trust into a rule that
+    // fails CI. Four call sites used to encode the answer separately and agreed
+    // only because the table was consistent.
+    //
+    // Checked over five fixtures because a rule's `status` depends on the
+    // crate: a decidable rule becomes `Delegated` or `Unevaluable` depending on
+    // what it finds, so one crate is not enough to see every combination.
+    for dir in ["leaky", "ports", "gnarly", "mixed", "cohesion"] {
+        for f in &fixture(dir).findings {
+            if f.kind == Kind::Heuristic {
+                assert!(!f.gates(), "heuristic `{}` gates a build", f.id);
+            }
+            if f.status == Status::Delegated {
+                assert!(!f.gates(), "delegated `{}` gates a build", f.id);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_delegated_rule_does_not_gate_even_when_marked_gating() {
+    // `panic-in-domain` is `Status::Delegated` with `gate: false` today, so
+    // this passes trivially. It is here to catch the edit where somebody marks
+    // it gating: the rule delegates to a mechanism outside this tool, and a
+    // violation reported here is information, not a verdict.
+    let report = fixture("leaky");
+    let f = rule(&report, "panic-in-domain");
+    assert_eq!(f.status, Status::Delegated);
+    assert!(!f.gates());
+    assert!(!f.failed());
+}
+
+#[test]
+fn the_baseline_and_the_scorecard_agree_about_what_gates() {
+    // Two of the four call sites, checked against each other through a real
+    // report: if a rule is in the gating list, its violation is allowed to
+    // change the exit code, and if it is not, the baseline must refuse to
+    // accept it.
+    let report = fixture("leaky");
+    let excluded = metatron::baseline::current(&report);
+    let gating = metatron::baseline::gating_rules(&report);
+
+    for f in &report.findings {
+        let in_baseline_gating = gating.contains(&f.id);
+        assert_eq!(
+            in_baseline_gating,
+            f.gates(),
+            "{}: gating_rules() and gates() disagree",
+            f.id
+        );
+        let refused = excluded.0.contains_key(f.id) || excluded.1.iter().any(|x| x.rule == f.id);
+        assert_eq!(
+            refused,
+            !f.gates(),
+            "{}: baseline::current() disagrees with gates()",
+            f.id
+        );
+    }
+}

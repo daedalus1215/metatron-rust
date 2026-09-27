@@ -629,7 +629,7 @@ fn check(
         .findings
         .iter()
         .filter(|f| f.status == Status::Violated)
-        .filter(|f| f.kind == Kind::Heuristic || !f.gate)
+        .filter(|f| !f.gates())
         .collect();
     if !advisory.is_empty() {
         println!();

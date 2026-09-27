@@ -97,6 +97,24 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Whether a violation of this rule is allowed to change the exit code.
+    ///
+    /// This is the one definition, and the reason it exists is that four places
+    /// used to answer the question four ways: `baseline::gating_rules` read
+    /// `gate` alone, `baseline::current` excluded heuristics and delegated
+    /// rules by hand, `Scorecard::enforcement` counted them with a third
+    /// combination, and the CLI's advisory list used a fourth. They agreed only
+    /// because the rule table happened to be consistent, and a rule table is
+    /// edited by adding to it.
+    ///
+    /// A heuristic cannot gate — that is what makes it a heuristic, so this is
+    /// not a policy choice that could be configured away. A delegated rule is
+    /// guaranteed by something outside this tool, so a violation reported here
+    /// is information rather than a verdict.
+    pub fn gates(&self) -> bool {
+        self.gate && self.kind == Kind::Decidable && self.status != Status::Delegated
+    }
+
     fn new(
         id: &'static str,
         title: &'static str,
@@ -139,7 +157,7 @@ impl Finding {
         self
     }
     pub fn failed(&self) -> bool {
-        self.gate && self.status == Status::Violated
+        self.gates() && self.status == Status::Violated
     }
 }
 
