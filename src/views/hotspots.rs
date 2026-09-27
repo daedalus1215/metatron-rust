@@ -56,7 +56,6 @@ pub struct Hotspots {
     pub churn: BTreeMap<String, Churn>,
     #[serde(rename = "churnMeta")]
     pub churn_meta: ChurnMeta,
-    pub findings: Vec<super::city::CityFinding>,
 }
 
 /// Being inside a git work tree is not enough: a path can sit in a repo
@@ -211,6 +210,5 @@ pub fn build(s: &Scorecard) -> Result<Hotspots> {
             available: !ch.is_empty(),
         },
         churn: ch,
-        findings: vec![],
     })
 }

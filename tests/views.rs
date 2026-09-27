@@ -306,6 +306,109 @@ fn the_narration_describes_this_crate_and_not_another() {
 // ------------------------------------------------- the payload and the page
 
 #[test]
+fn no_view_payload_carries_a_key_that_is_empty_for_every_fixture() {
+    // A lens that reports zero for something nobody computed is the atlas's
+    // version of the coverage problem, and it is caught by the same instinct:
+    // `crossDomain` was `vec![]` in the payload and the page printed "0
+    // dependencies cross a bounded context" over an empty table. Nothing in the
+    // model defines a bounded context, so the key is gone rather than filled.
+    //
+    // The assertion covers every key of every view, not that one: a key empty
+    // for all five fixtures is either a lens nobody wired up or a number this
+    // tool cannot measure, and both should be a decision somebody makes rather
+    // than a default a struct literal hands you.
+    // `cohesion` is in the list because that view's lens needs a fixture built
+    // to trip it; without one, `types` looks dark and the test is measuring the
+    // fixture set rather than the payload.
+    let fixtures = ["ports", "mixed", "leaky", "gnarly", "panics", "cohesion"];
+    for view in ["atlas", "city", "layers", "traffic", "hotspots", "cohesion"] {
+        let keys = empty_in_every_fixture(view, &fixtures);
+        assert!(
+            keys.is_empty(),
+            "{view}: empty for every fixture: {}",
+            keys.join(", ")
+        );
+    }
+}
+
+fn empty_in_every_fixture(view: &str, fixtures: &[&str]) -> Vec<String> {
+    let payloads: Vec<Value> = fixtures
+        .iter()
+        .map(|f| payload(&views::render(&card(f), view).unwrap()))
+        .collect();
+    let mut keys = std::collections::BTreeSet::new();
+    collect_keys(&payloads[0], "", &mut keys);
+    keys.into_iter()
+        .filter(|k| payloads.iter().all(|p| empty_at(p, k)))
+        .collect()
+}
+
+/// Every dotted path in `v` that leads to an empty array, object or null.
+fn collect_keys(v: &Value, path: &str, out: &mut std::collections::BTreeSet<String>) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m {
+                let p = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{path}.{k}")
+                };
+                if all_empty(x) {
+                    out.insert(p.clone());
+                }
+                collect_keys(x, &p, out);
+            }
+        }
+        // A per-element lens is only dark if it is dark everywhere: `modules`
+        // is a list of towers, and one tower with findings is the lens working.
+        Value::Array(a) => {
+            for x in a {
+                collect_keys(x, path, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether `path` is empty in `v`, descending through a list by requiring every
+/// element to be empty — `modules.findings` is only dark if no tower has any.
+fn empty_at(v: &Value, path: &str) -> bool {
+    let mut parts = path.split('.').peekable();
+    let mut cur = v;
+    while let Some(part) = parts.next() {
+        cur = match cur {
+            Value::Object(m) => match m.get(part) {
+                Some(x) => x,
+                None => return true,
+            },
+            Value::Array(a) => {
+                let rest: Vec<&str> = std::iter::once(part).chain(parts).collect();
+                let rest = rest.join(".");
+                return a.iter().all(|x| empty_at(x, &rest));
+            }
+            _ => return true,
+        };
+    }
+    all_empty(cur)
+}
+
+/// Empty means empty at every level beneath it, so a key holding a list of
+/// empty lists counts.
+///
+/// `null` does not count, and the distinction is the point. `endpoints.ret` is
+/// `Option<String>`: a command handler that returns nothing is null there, and
+/// the page says so ("no return value") rather than printing an empty cell. A
+/// null is a value that is absent for this endpoint; an empty list is a lens
+/// that never fired anywhere, which is what this test is looking for.
+fn all_empty(v: &Value) -> bool {
+    match v {
+        Value::Array(a) => a.iter().all(all_empty),
+        Value::Object(o) => o.values().all(all_empty),
+        _ => false,
+    }
+}
+
+#[test]
 fn a_payload_cannot_close_its_own_script_element() {
     // The two sequences that end a `<script>` element are `</script` and
     // `<!--`. Both appear in a layer title in this fixture's metatron.toml,
