@@ -86,3 +86,62 @@ fn an_unrecognised_flag_is_not_a_regression() {
     // read as a failing architecture.
     assert_eq!(code(&["check", "--min-covrage", "50", "."]), NO_ANSWER);
 }
+
+#[test]
+fn a_rule_name_that_gates_nothing_is_refused_not_passed() {
+    // The failure this prevents: `gating on 0 rule(s)` and then PASS. A
+    // misspelled rule name is the cheapest way to buy a green build, and it
+    // is indistinguishable from a real pass unless the tool checks.
+    let out = run(&["check", "--rule", "spec-99-no-such-rule", "."]);
+    assert_eq!(
+        out.status.code(),
+        Some(NO_ANSWER),
+        "a rule name that matched nothing was allowed to pass:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("spec-99-no-such-rule"), "{err}");
+    // And it lists what it could have meant, which is the difference between
+    // an error and a dead end.
+    assert!(
+        err.contains("the rules here are:"),
+        "the error should name the real rules:\n{err}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&out.stdout).contains("PASS"),
+        "a refused check printed a verdict"
+    );
+}
+
+#[test]
+fn an_advisory_rule_is_refused_for_its_own_reason() {
+    // A heuristic rule is a real rule that cannot fail a build by design.
+    // Asking for it by name is a different mistake from a typo, and the error
+    // should say which one this is rather than insisting the rule is unknown.
+    let out = run(&["check", "--rule", "fat-trait", "."]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(NO_ANSWER), "{err}");
+    assert!(err.contains("advisory"), "{err}");
+    assert!(
+        !err.contains("matched no rule in this crate"),
+        "a known rule was reported as unknown:\n{err}"
+    );
+}
+
+#[test]
+fn a_rule_name_that_gates_something_still_runs() {
+    // The other half: the guard must not refuse a legitimate narrowing, or it
+    // is just a new way to fail.
+    let out = run(&["check", "--rule", "no-same-level", "."]);
+    assert_ne!(
+        out.status.code(),
+        Some(NO_ANSWER),
+        "a real gating rule was refused:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("gating on 1 rule(s)"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}

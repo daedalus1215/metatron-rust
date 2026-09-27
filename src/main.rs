@@ -625,6 +625,52 @@ fn check(
             .filter(|r| only.iter().any(|o| o == r))
             .collect()
     };
+
+    // A name that gates nothing leaves nothing to fail, and "nothing left to
+    // fail" is the PASS a typo deserves least. `metatron check --rule
+    // spec-99-layerin .` used to print `gating on 0 rule(s)` and then PASS,
+    // which is a green build bought with a misspelling.
+    //
+    // Two different mistakes land in the same place, and they deserve different
+    // answers: a name no rule carries is a typo, and a name a heuristic rule
+    // carries cannot fail a build by design. Neither produced a verdict, so
+    // neither is a PASS — but the message should say which one it was.
+    if !only.is_empty() {
+        let known = s.gating_rules();
+        let is_known = |o: &str| s.report.findings.iter().any(|f| f.id == o);
+        let named: Vec<&str> = only.iter().map(String::as_str).collect();
+        let unknown: Vec<&str> = named.iter().copied().filter(|o| !is_known(o)).collect();
+        let advisory: Vec<&str> = named
+            .iter()
+            .copied()
+            .filter(|o| is_known(o) && !known.contains(o))
+            .collect();
+
+        if !unknown.is_empty() {
+            anyhow::bail!(
+                "--rule matched no rule in this crate: {}\n  the rules here are: {}",
+                unknown.join(", "),
+                s.report
+                    .findings
+                    .iter()
+                    .map(|f| f.id)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        if !advisory.is_empty() {
+            anyhow::bail!(
+                "--rule named {}, which is advisory and cannot fail a build\n  \
+                 gating rules are: {}",
+                advisory.join(", "),
+                if known.is_empty() {
+                    "none in this crate".to_string()
+                } else {
+                    known.join(", ")
+                }
+            );
+        }
+    }
     let failing = s
         .diff
         .new
