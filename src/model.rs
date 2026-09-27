@@ -107,6 +107,11 @@ pub struct Symbol {
     /// `self.<method>()` called from a method body. Joins LCOM components.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub self_calls: Vec<String>,
+    /// Calls that abort on failure, as `(method, line)`. Recorded for the
+    /// `panic-in-domain` rule, which until now had no premise to evaluate and
+    /// said so.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub panics: Vec<(String, u32)>,
     pub loc: u32,
 }
 

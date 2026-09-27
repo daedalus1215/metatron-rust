@@ -496,6 +496,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(s.span()),
                     });
                     let id = join(mod_id, &s.ident.to_string());
@@ -541,6 +542,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(e.span()),
                     });
                 }
@@ -566,6 +568,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(t.span()),
                     });
                     for ti in &t.items {
@@ -593,6 +596,7 @@ impl Scanner {
                                 field_chains: vec![],
                                 self_fields: vec![],
                                 self_calls: vec![],
+                                panics: vec![],
                                 loc: span_loc(f.span()),
                             });
                         }
@@ -619,6 +623,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(u.span()),
                     });
                 }
@@ -642,6 +647,7 @@ impl Scanner {
                     field_chains: vec![],
                     self_fields: vec![],
                     self_calls: vec![],
+                    panics: vec![],
                     loc: span_loc(t.span()),
                 }),
                 syn::Item::Fn(f) => {
@@ -685,6 +691,7 @@ impl Scanner {
                         field_chains: scan.field_chains,
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: scan.panics,
                         loc: span_loc(f.span()),
                     });
                 }
@@ -718,6 +725,7 @@ impl Scanner {
                     field_chains: vec![],
                     self_fields: vec![],
                     self_calls: vec![],
+                    panics: vec![],
                     loc: span_loc(s.span()),
                 }),
                 syn::Item::Const(c) => self.push(Symbol {
@@ -740,6 +748,7 @@ impl Scanner {
                     field_chains: vec![],
                     self_fields: vec![],
                     self_calls: vec![],
+                    panics: vec![],
                     loc: span_loc(c.span()),
                 }),
                 syn::Item::Macro(m) => {
@@ -844,6 +853,7 @@ impl Scanner {
                     field_chains: scan.field_chains,
                     self_fields: scan.self_fields,
                     self_calls: scan.self_calls,
+                    panics: scan.panics,
                     loc: span_loc(f.span()),
                 });
             }
