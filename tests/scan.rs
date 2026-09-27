@@ -81,6 +81,61 @@ fn derives_are_captured() {
     }
 }
 
+// ------------------------------------------------------------- entry points
+
+/// Spec 07. The scanner used to take the first of `main.rs` / `lib.rs` it
+/// found, so a crate with both targets was analysed minus its entire library —
+/// and reported the result as though it were the whole crate.
+#[test]
+fn a_dual_target_crate_scans_both_roots() {
+    let m = fixture("dual");
+
+    assert_eq!(
+        m.stats.files, 2,
+        "expected both src/lib.rs and src/main.rs, got {:?}",
+        m.modules.iter().map(|x| &x.file).collect::<Vec<_>>()
+    );
+
+    // A symbol from each target. The library's port is the one that matters:
+    // if `lib.rs` was skipped, `Greeter` is absent and every rule that needs a
+    // port silently has no premise.
+    assert_eq!(sym(&m, "Greeter").kind, SymbolKind::Trait);
+    assert_eq!(sym(&m, "Console").kind, SymbolKind::Struct);
+    assert_eq!(sym(&m, "greet_all").kind, SymbolKind::Fn);
+
+    // And one from the binary, so the test cannot pass by scanning the crate
+    // root alone and calling it a library.
+    assert_eq!(sym(&m, "main").kind, SymbolKind::Fn);
+}
+
+#[test]
+fn the_binary_resolves_the_library_by_its_crate_name() {
+    let m = fixture("dual");
+
+    // `use dual::{greet_all, Console, Greeter}` in the binary points at the
+    // library's own crate name. A resolver that does not know the crate calls
+    // itself an external crate and the path becomes a diagnostic.
+    let unresolved: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::UnresolvedPath)
+        .collect();
+    assert!(
+        unresolved.is_empty(),
+        "the binary could not reach its own library: {unresolved:?}"
+    );
+
+    // The `Impl` binding recorded in the library must still be bound, which it
+    // only is if the library's symbols were in the index.
+    let binding = m
+        .impls
+        .iter()
+        .find(|b| b.trait_path.ends_with("Greeter"))
+        .expect("the Impl binding in lib.rs was not recorded");
+    assert_eq!(binding.trait_id.as_deref(), Some("Greeter"));
+    assert_eq!(binding.type_id.as_deref(), Some("Console"));
+}
+
 // ------------------------------------------------------------- the port seam
 
 #[test]
