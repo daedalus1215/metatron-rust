@@ -23,6 +23,7 @@ explains why the target codebases have no architecture yet.
 | 05 scorecard, baseline, and `cargo test` | **implemented** |
 | 06 retargeting the views | **implemented** |
 | 07 trustworthiness and self-audit | **implemented** |
+| 08 test presence and churn bounds | **written** |
 
 ## Try it
 

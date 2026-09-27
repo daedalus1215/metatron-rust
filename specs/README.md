@@ -9,7 +9,8 @@ tags: [index, roadmap, rust, ddd]
 
 # Specs
 
-Seven specs, all written and implemented: 01-06 on 2026-08-29, 07 on 2026-09-26.
+Seven specs implemented: 01-06 on 2026-08-29, 07 on 2026-09-27. 08 is written
+and not started.
 A Rust rewrite of [`metatron-nestjs`](../../metatron-nestjs) that checks Rust
 codebases against `patterns-rust` — the layout convention the rules are written
 against, named throughout but not a checkout beside this one. Numbered by
@@ -24,6 +25,7 @@ dependency, not by importance.
 | 05 | [Scorecard, baseline, and `cargo test`](05-scorecard-and-baseline.md) | gating | 04 |
 | 06 | [Retargeting the views](06-views.md) | presentation | 03, 04 |
 | 07 | [Trustworthiness and self-audit](07-trustworthiness-and-self-audit.md) | self-audit | 01-06 |
+| 08 | [Test presence and churn bounds](08-test-presence-and-churn-bounds.md) | new analysis | 01, 04 |
 
 ## Why full Rust
 
