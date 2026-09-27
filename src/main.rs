@@ -696,9 +696,54 @@ fn check(
         println!("  FAIL — {failing} new violation(s), {allow_new} allowed.");
         return Ok(REGRESSION);
     }
+
+    // A verdict is only as good as what it looked at. `PASS` on a line by
+    // itself is a claim about the whole crate, and this tool knows three things
+    // that make the claim narrower: how much of the code was classified at all,
+    // how many rules could not decide, and whether there was a known state to
+    // compare against. They belong beside the word, not in a footnote nobody
+    // scrolls to.
+    //
+    // The exit code is unchanged here. Making these gate is a separate,
+    // opt-in decision (`--min-coverage`, `--require-evaluable`); this commit
+    // only stops the text from claiming more than it measured.
+    let mut narrower = Vec::new();
+    if !s.had_baseline {
+        narrower.push(format!(
+            "no {}, so 'new' means 'all' and nothing was compared",
+            metatron::baseline::FILE
+        ));
+    }
+    if cov.classified < cov.total {
+        narrower.push(format!(
+            "{}/{} symbols classified ({:.1}%) — the rest are outside the model",
+            cov.classified,
+            cov.total,
+            s.coverage()
+        ));
+    }
+    if c.unevaluable > 0 {
+        narrower.push(format!(
+            "{} rule(s) unevaluable — a rule that cannot decide did not pass",
+            c.unevaluable
+        ));
+    }
+    if !gating.is_empty() && gating.len() < s.gating_rules().len() {
+        narrower.push(format!(
+            "gating narrowed to {} of {} rule(s)",
+            gating.len(),
+            s.gating_rules().len()
+        ));
+    }
+
     println!(
-        "  PASS — no new violations. {} known.",
-        s.diff.known.len() + if s.had_baseline { 0 } else { s.diff.new.len() }
+        "  PASS — no new violations. {} known. {}",
+        s.diff.known.len() + if s.had_baseline { 0 } else { s.diff.new.len() },
+        if narrower.is_empty() {
+            String::from("")
+        } else {
+            format!("(note: {})", narrower.join("; "))
+        }
     );
     Ok(0)
 }
