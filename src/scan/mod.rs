@@ -310,19 +310,29 @@ impl Scanner {
             .filter(|s| matches!(s.kind, SymbolKind::Fn | SymbolKind::Method))
             .count();
 
+        let stats = Stats {
+            files: self.files,
+            modules: self.modules.len(),
+            symbols: self.symbols.len(),
+            types,
+            fns,
+            edges: edges.len(),
+            loc: self.total_loc,
+            targets: targets
+                .iter()
+                .map(|t| TargetInfo {
+                    kind: if t.mod_id.is_empty() { "lib" } else { "bin" }.into(),
+                    name: target_name(&t.mod_id, &self.project),
+                    file: self.rel(&t.path),
+                })
+                .collect(),
+        };
+
         Ok(Model {
             project: self.project,
             root: self.root.display().to_string(),
             generated_at: None,
-            stats: Stats {
-                files: self.files,
-                modules: self.modules.len(),
-                symbols: self.symbols.len(),
-                types,
-                fns,
-                edges: edges.len(),
-                loc: self.total_loc,
-            },
+            stats,
             modules: self.modules,
             symbols: self.symbols,
             edges,
@@ -972,15 +982,21 @@ impl Scanner {
     }
 
     fn rel(&self, p: &Path) -> String {
-        // Under `src/`, the usual crate-relative path. Outside it — a
-        // `[[bin]] path = "tools/cli.rs"` — fall back to the crate directory,
-        // so the model never carries an absolute path from the machine that
-        // happened to run the scan.
-        p.strip_prefix(&self.root)
-            .or_else(|_| p.strip_prefix(&self.crate_dir))
-            .unwrap_or(p)
-            .display()
-            .to_string()
+        // Every path in the model is relative to `src/`, which is what
+        // `Model.root` says the coordinate system is. A declared target
+        // outside `src/` — `[[bin]] path = "tools/cli.rs"` — is written
+        // `../tools/cli.rs` rather than switched to a second base, so the model
+        // has one convention and a reader can see at a glance that the file is
+        // outside the scanned root.
+        if let Ok(rel) = p.strip_prefix(&self.root) {
+            return rel.display().to_string();
+        }
+        match p.strip_prefix(&self.crate_dir) {
+            Ok(rel) => format!("../{}", rel.display()),
+            // Outside the crate entirely, which no target should be. Better an
+            // odd path than a wrong one.
+            Err(_) => p.display().to_string(),
+        }
     }
 
     fn module_file(
@@ -1317,6 +1333,16 @@ fn join(a: &str, b: &str) -> String {
 
 fn parent_of(id: &str) -> Option<String> {
     id.rfind("::").map(|i| id[..i].to_string())
+}
+
+/// The cargo target name behind a module id. The root is the library, named
+/// for the package; the rest are binaries, and their id already carries the
+/// name cargo gave them.
+fn target_name(mod_id: &str, project: &str) -> String {
+    match mod_id.strip_prefix("(bin:").and_then(|s| s.strip_suffix(')')) {
+        Some(n) => n.to_string(),
+        None => project.replace('-', "_"),
+    }
 }
 
 fn last_seg(p: &str) -> &str {

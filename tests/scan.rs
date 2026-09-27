@@ -127,7 +127,11 @@ fn a_declared_bin_whose_root_is_outside_src_is_scanned() {
 
     let cli = sym(&m, "(bin:cli)::main");
     assert_eq!(cli.kind, SymbolKind::Fn);
-    assert_eq!(cli.file, "tools/cli.rs", "an absolute path leaked into the model");
+    assert_eq!(
+        cli.file,
+        "../tools/cli.rs",
+        "a target outside src/ must still be relative to the model root"
+    );
 
     // And the library is still the crate root, so `use declared::helper` in
     // the binary resolves rather than becoming a diagnostic.
@@ -189,6 +193,32 @@ fn a_dual_target_crate_scans_both_roots() {
     // the library is — so its symbols carry a synthetic prefix that no path in
     // source can collide with.
     assert_eq!(sym(&m, "(bin:main)::main").kind, SymbolKind::Fn);
+}
+
+#[test]
+fn a_dual_target_scan_says_so() {
+    let m = fixture("dual");
+
+    let names: Vec<&str> = m
+        .stats
+        .targets
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect();
+    assert_eq!(names, ["dual", "main"], "the summary must name both roots");
+    assert_eq!(m.stats.targets[0].kind, "lib");
+    assert_eq!(m.stats.targets[0].file, "lib.rs");
+    assert_eq!(m.stats.targets[1].kind, "bin");
+    assert_eq!(m.stats.targets[1].file, "main.rs");
+
+    // Two roots, two module-tree nodes, and neither id borrowed from the other.
+    let roots: Vec<&str> = m
+        .modules
+        .iter()
+        .filter(|x| x.parent.is_none())
+        .map(|x| x.id.as_str())
+        .collect();
+    assert_eq!(roots, ["(crate)", "(bin:main)"]);
 }
 
 #[test]

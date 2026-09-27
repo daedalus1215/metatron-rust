@@ -200,6 +200,21 @@ pub struct Stats {
     pub fns: usize,
     pub edges: usize,
     pub loc: u32,
+    /// Every compilation unit this scan covered. A crate with a library and a
+    /// binary has two, and a summary that does not say so reads as a census of
+    /// one file.
+    pub targets: Vec<TargetInfo>,
+}
+
+/// One compilation unit the scan covered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetInfo {
+    /// `lib` or `bin`.
+    pub kind: String,
+    /// The crate's target name — the package name for a library.
+    pub name: String,
+    /// Crate-relative path to the root file.
+    pub file: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

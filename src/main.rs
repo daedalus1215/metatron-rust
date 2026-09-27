@@ -151,6 +151,17 @@ fn main() -> Result<()> {
     );
     println!("  {} impl bindings", model.impls.len());
 
+    // Spec 07: a crate with a library and a binary has two roots, and a
+    // summary that does not say so reads as a census of one file.
+    if s.targets.len() > 1 {
+        let names: Vec<String> = s
+            .targets
+            .iter()
+            .map(|t| format!("{}:{}", t.kind, t.name))
+            .collect();
+        println!("  {} targets · {}", s.targets.len(), names.join(" · "));
+    }
+
     // Spec 03: a scan that reports structure without reporting how much of
     // it was recognised invites the reader to assume all of it was.
     if let Ok(cfg) = metatron::classify::Config::load(&dir) {
