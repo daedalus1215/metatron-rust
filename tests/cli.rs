@@ -145,3 +145,66 @@ fn a_rule_name_that_gates_something_still_runs() {
         String::from_utf8_lossy(&out.stdout)
     );
 }
+
+#[test]
+fn a_coverage_floor_is_a_gate_not_a_footnote() {
+    // `gnarly` classifies 1 of its 5 symbols. Every rule here is blind to the
+    // other four, so without a floor its PASS is nearly content-free.
+    let out = run(&["check", "--min-coverage", "90", "tests/fixtures/gnarly"]);
+    assert_eq!(
+        out.status.code(),
+        Some(REGRESSION),
+        "a crate under the coverage floor passed:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("below the 90.0% floor"), "{stdout}");
+    // It should say how much was invisible, not just that it was.
+    assert!(
+        stdout.contains("matched no pattern in metatron.toml"),
+        "the failure should name the cause:\n{stdout}"
+    );
+    assert!(!stdout.contains("PASS"), "{stdout}");
+}
+
+#[test]
+fn a_coverage_floor_below_the_actual_coverage_passes() {
+    // Otherwise the flag is a switch that always fails, which is not a gate.
+    assert_eq!(
+        code(&["check", "--min-coverage", "10", "tests/fixtures/gnarly"]),
+        0
+    );
+    // And a crate that classifies everything is not made to fail by a floor
+    // it clears.
+    assert_eq!(
+        code(&["check", "--min-coverage", "90", "tests/fixtures/ports"]),
+        0
+    );
+}
+
+#[test]
+fn the_coverage_floor_applies_to_the_json_path_too() {
+    // `--json` returns before any of the narrative, so the floor has to be
+    // applied inside it. A flag that works in one output mode and is ignored in
+    // the other is the kind of half-feature CI depends on.
+    assert_eq!(
+        code(&[
+            "check",
+            "--json",
+            "--min-coverage",
+            "90",
+            "tests/fixtures/gnarly"
+        ]),
+        REGRESSION
+    );
+    assert_eq!(
+        code(&[
+            "check",
+            "--json",
+            "--min-coverage",
+            "10",
+            "tests/fixtures/gnarly"
+        ]),
+        0
+    );
+}

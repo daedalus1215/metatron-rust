@@ -53,6 +53,12 @@ enum Cmd {
         /// Suppress the fixed-since-baseline section.
         #[arg(long)]
         no_fixed: bool,
+        /// Fail unless at least this share of symbols was classified.
+        /// Coverage is the ceiling on what any rule here can see, so a floor
+        /// turns "this tool knows little about this crate" into a build
+        /// failure instead of a footnote.
+        #[arg(long, value_name = "PCT")]
+        min_coverage: Option<f64>,
     },
     /// Render the views to .metatron/views/.
     Views {
@@ -122,9 +128,10 @@ fn run() -> Result<u8> {
             rules,
             allow_new,
             no_fixed,
+            min_coverage,
         }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return check(&dir, all, json, &rules, allow_new, no_fixed);
+            return check(&dir, all, json, &rules, allow_new, no_fixed, min_coverage);
         }
         Some(Cmd::Views { path, name, out }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
@@ -431,10 +438,17 @@ fn check(
     only: &[String],
     allow_new: usize,
     no_fixed: bool,
+    min_coverage: Option<f64>,
 ) -> Result<u8> {
     use metatron::rules::{Kind, Status, Tone};
 
     let s = metatron::scorecard::build(dir)?;
+
+    // Coverage is the ceiling on what any rule here can see: a rule cannot
+    // fire on a symbol the model never matched. A floor turns that from a
+    // footnote into a gate. It is a real "no" rather than a tool failure, so
+    // it exits 1 with the rest of the gate results.
+    let below_floor = min_coverage.filter(|pct| s.coverage() < *pct);
 
     if json {
         #[derive(serde::Serialize)]
@@ -457,7 +471,11 @@ fn check(
                 findings: &s.report.findings,
             })?
         );
-        return Ok(s.exit_code(allow_new) as u8);
+        return Ok(if below_floor.is_some() {
+            REGRESSION
+        } else {
+            s.exit_code(allow_new) as u8
+        });
     }
 
     let c = s.counts();
@@ -694,6 +712,16 @@ fn check(
     }
     if failing > allow_new {
         println!("  FAIL — {failing} new violation(s), {allow_new} allowed.");
+        return Ok(REGRESSION);
+    }
+    if let Some(pct) = below_floor {
+        let gap = s.classified.unmatched.len();
+        println!(
+            "  FAIL — coverage {:.1}% is below the {pct:.1}% floor.\n\
+             \x20        {gap} symbol(s) matched no pattern in metatron.toml, so \
+             no rule here could have seen them.",
+            s.coverage()
+        );
         return Ok(REGRESSION);
     }
 
