@@ -15,7 +15,7 @@ use crate::baseline::{self, Baseline, Diff};
 use crate::classify::{self, Classified, Config};
 use crate::cohesion::{self, CohesionReport, Verdict};
 use crate::model::Model;
-use crate::rules::{self, Kind, Report, Status, Tier};
+use crate::rules::{self, Finding, Kind, Report, Status, Tier};
 use anyhow::Result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -98,17 +98,23 @@ impl Scorecard {
     /// three rules migrate from `metatron` to `compiler`.
     pub fn enforcement(&self) -> Enforcement {
         let f = &self.report.findings;
+        // Four disjoint buckets, because the line reads as a partition of the
+        // rules: `clippy 1` next to `metatron 16` out of 22 invites the
+        // arithmetic 16 + 1 + 6. A rule is counted once, by whoever enforces
+        // it — which for `panic-in-domain` is this tool, even though its tier
+        // is still `clippy` and names the lint that could have done the job.
+        let clippy_owns = |x: &&Finding| x.tier == Tier::Clippy && x.status == Status::Delegated;
         Enforcement {
-            compiler: f.iter().filter(|x| x.tier == Tier::Compiler).count(),
+            compiler: f
+                .iter()
+                .filter(|x| x.gates() && x.tier == Tier::Compiler)
+                .count(),
             metatron: f
                 .iter()
-                .filter(|x| x.gates() && x.tier != Tier::Compiler)
+                .filter(|x| x.gates() && x.tier != Tier::Compiler && !clippy_owns(x))
                 .count(),
-            clippy: f.iter().filter(|x| x.tier == Tier::Clippy).count(),
-            advisory: f
-                .iter()
-                .filter(|x| !x.gates() && x.tier != Tier::Clippy && x.tier != Tier::Compiler)
-                .count(),
+            clippy: f.iter().filter(|x| clippy_owns(x)).count(),
+            advisory: f.iter().filter(|x| !x.gates() && !clippy_owns(x)).count(),
         }
     }
 

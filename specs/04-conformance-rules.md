@@ -107,11 +107,13 @@ reported prominently and gates nothing.
 Twenty rules: **fifteen decidable, five heuristic.** Fourteen gate, one warns,
 five never gate.
 
-`panic-in-domain` is deliberately absent. `clippy` already has
-`unwrap_used` / `expect_used` and can be denied per-module in
-`clippy.toml`; duplicating it here would be a second, worse implementation of a
-lint the toolchain ships. The scorecard in spec 05 lists it as
-`tier: clippy` so the coverage story stays complete.
+`panic-in-domain` is listed under `tier: clippy` because `clippy` ships
+`unwrap_used` / `expect_used` and could do the job. It is decided here anyway:
+the scanner records `unwrap`/`expect` call sites on each symbol, and reading
+them back is one comparison. Marking it `Delegated` on the grounds that a
+`clippy.toml` could deny the lint per module was the mistake spec 07 exists to
+catch — this repository configures no clippy lints, so nothing was enforcing
+it, and a rule delegated to nothing has no premise and is dark in every crate.
 
 ### The `Impl` edge
 
@@ -213,8 +215,9 @@ in the table deliberately introduced.
 
 **22 rules, not 20.** `dependency-inversion` was implicit in the spec's
 "the `Impl` edge" section and is now a rule that can be `Upheld`;
-`panic-in-domain` is carried as `Delegated` so the coverage story stays
-complete.
+`panic-in-domain` was carried as `Delegated` so the coverage story stays
+complete, and became a decided rule in spec 07 once the model recorded the
+calls it was delegating about.
 
 ### Measured
 

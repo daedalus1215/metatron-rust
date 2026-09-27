@@ -341,7 +341,7 @@ pub fn check(m: &Model, cfg: &Config, c: &Classified) -> Report {
         port_has_fake(&x),
         mixed_layer_module(&x),
         dependency_inversion(&x),
-        panic_in_domain(),
+        panic_in_domain(&x),
         // Heuristics. None of these gate.
         store_decides(&x),
         handler_decides(&x),
@@ -1022,20 +1022,65 @@ fn mixed_layer_module(x: &Ctx) -> Finding {
     f.with(out)
 }
 
-/// Listed so the coverage story is complete, checked by clippy.
-fn panic_in_domain() -> Finding {
-    let mut f = Finding::new(
+/// The domain should not panic, and nothing here checks that.
+///
+/// This used to be `Status::Delegated` with the reason "clippy::unwrap_used /
+/// expect_used, denied per-module in clippy.toml". Neither half was true: there
+/// is no `clippy.toml` in this repository, and `clippy.toml` configures lint
+/// thresholds rather than lint levels, so it cannot scope a denial to one
+/// module in any case. The rule was delegating to a mechanism that did not
+/// exist, in a repository that holds two `unwrap`s of its own.
+///
+/// It is `Unevaluable` now, which is the honest status: a decidable rule whose
+/// premise this tool cannot supply. The model records no edge for `.unwrap()`,
+/// so there is nothing to decide from — writing the rule would mean teaching the
+/// scanner about panicking calls, which is a different change.
+///
+/// Two ways to close it, both named so the next person does not have to guess:
+///
+/// * delegate it for real — `[lints.clippy] unwrap_used = "deny"` in
+///   `Cargo.toml` denies it crate-wide, which over-covers but never
+///   under-covers;
+/// * decide it here — record `unwrap`/`expect` calls in the model, then this
+///   becomes an ordinary check over the domain layer.
+/// Every symbol the classifier calls `domain/`, checked for the calls that
+/// abort instead of returning: `unwrap`, `expect`, and their `_err` forms.
+///
+/// Was `Status::Delegated` on the grounds that clippy ships `unwrap_used` and
+/// a `clippy.toml` could deny it per module. Neither half held: this crate
+/// configures no clippy lints at all, so nothing was enforcing it, and a rule
+/// delegated to nothing has no premise and cannot be evaluated — which left
+/// `Status::Unevaluable` and, in turn, `--require-evaluable` red for every
+/// crate. Deciding it from `Symbol.panics` costs one comparison and makes the
+/// flag usable again.
+fn panic_in_domain(x: &Ctx) -> Finding {
+    let f = Finding::new(
         "panic-in-domain",
         "the domain does not unwrap",
         "design-philosophy.md",
         Tier::Clippy,
         Kind::Decidable,
-        false,
+        true,
     );
-    f.status = Status::Delegated;
-    f.tone = Tone::Note;
-    f.because = "clippy::unwrap_used / expect_used, denied per-module in clippy.toml".into();
-    f
+    if !x.any_in_layer("domain") {
+        return f.unevaluable("no symbol classifies as domain");
+    }
+    let mut out = Vec::new();
+    for s in &x.m.symbols {
+        if x.where_(&s.id) != Some("domain") {
+            continue;
+        }
+        for (method, line) in &s.panics {
+            out.push(Instance {
+                from: s.id.clone(),
+                to: method.clone(),
+                file: s.file.clone(),
+                line: *line,
+                detail: format!("`{}` can abort on {}", s.name, method),
+            });
+        }
+    }
+    f.with(out)
 }
 
 // ------------------------------------------------------------ heuristics

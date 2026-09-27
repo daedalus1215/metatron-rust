@@ -311,12 +311,60 @@ fn the_workspace_split_hands_three_rules_to_the_compiler() {
 }
 
 #[test]
-fn a_lint_the_toolchain_ships_is_listed_and_not_reimplemented() {
-    let r = fixture("ports");
-    let f = rule(&r, "panic-in-domain");
-    assert_eq!(f.tier, Tier::Clippy);
-    assert_eq!(f.status, Status::Delegated);
-    assert!(f.because.contains("clippy"));
+fn a_lint_the_toolchain_ships_is_listed_under_its_tier_and_decided_here() {
+    // `clippy::unwrap_used` could do this job, which is why the tier says
+    // `clippy`. It used to also claim the rule was `Delegated` to a
+    // per-module deny in a `clippy.toml` — a file this repository does not
+    // have. Nothing was enforcing it, and a rule delegated to nothing has no
+    // premise: it was dark in every crate, which made `--require-evaluable`
+    // permanently red. It is decided from the model instead.
+    let conforming = fixture("ports");
+    let clean = rule(&conforming, "panic-in-domain");
+    assert_eq!(clean.tier, Tier::Clippy);
+    assert_eq!(clean.status, Status::Pass);
+    assert!(
+        clean.gates(),
+        "a rule that can be decided should fail a build"
+    );
+    assert!(clean.instances.is_empty());
+
+    let unwrapping = fixture("panics");
+    let dirty = rule(&unwrapping, "panic-in-domain");
+    assert_eq!(dirty.status, Status::Violated);
+    assert!(dirty.failed());
+    let lines: Vec<u32> = dirty.instances.iter().map(|i| i.line).collect();
+    assert_eq!(lines, vec![8, 18], "the call site, not the fn's first line");
+    assert!(dirty
+        .instances
+        .iter()
+        .all(|i| i.file.ends_with("domain/mod.rs")));
+    assert!(dirty
+        .instances
+        .iter()
+        .any(|i| i.detail.contains("unwrap") && i.detail.contains("index_of")));
+    assert!(dirty
+        .instances
+        .iter()
+        .any(|i| i.detail.contains("expect") && i.detail.contains("port_of")));
+}
+
+#[test]
+fn the_enforcement_line_partitions_the_rules_it_counts() {
+    // `enforcement compiler 0 · metatron 16 · clippy 0 · advisory 6` reads as
+    // four buckets of 22 rules. It was not: `clippy` counted by tier and
+    // `metatron` counted by `gates()`, so a rule that was both — tier
+    // `clippy`, decided here, gating — appeared in two buckets and the
+    // arithmetic stopped adding up.
+    for dir in ["ports", "panics", "leaky", "gnarly"] {
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(dir);
+        let n = fixture(dir).findings.len();
+        let e = metatron::check(&p).enforcement();
+        let total = e.compiler + e.metatron + e.clippy + e.advisory;
+        assert_eq!(total, n, "{dir}: {e:?} does not partition {n} rules");
+        assert_eq!(e.clippy, 0, "{dir}: nothing is enforced by clippy here");
+    }
 }
 
 // ------------------------------------------------- who is allowed to gate
@@ -346,12 +394,22 @@ fn no_heuristic_and_no_delegated_rule_ever_gates() {
 
 #[test]
 fn a_delegated_rule_does_not_gate_even_when_marked_gating() {
-    // `panic-in-domain` is `Status::Delegated` with `gate: false` today, so
-    // this passes trivially. It is here to catch the edit where somebody marks
-    // it gating: the rule delegates to a mechanism outside this tool, and a
-    // violation reported here is information, not a verdict.
-    let report = fixture("leaky");
-    let f = rule(&report, "panic-in-domain");
+    // `domain-no-io` is decidable and `gate: true` in the rule table, so the
+    // only thing keeping it out of a build's exit code is `Status::Delegated`:
+    // under `crate_graph = "B"` the compiler rejects the import and reporting a
+    // metatron verdict there would overstate what this tool did. This catches
+    // the edit where `gates()` forgets the status.
+    //
+    // It used to use `panic-in-domain`, which passed for the wrong reason — it
+    // was `gate: false` as well as delegated, so the test would have kept
+    // passing if the status check had been deleted.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/leaky");
+    let m = metatron::scan(&dir).unwrap();
+    let mut cfg = Config::load(&dir).unwrap();
+    cfg.crate_graph = "B".into();
+    let report = check(&m, &cfg, &classify(&m, &cfg));
+    let f = rule(&report, "domain-no-io");
+    assert_eq!(f.kind, Kind::Decidable);
     assert_eq!(f.status, Status::Delegated);
     assert!(!f.gates());
     assert!(!f.failed());
