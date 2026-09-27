@@ -1,0 +1,153 @@
+<!doctype html><meta charset=utf-8><title>{{project}} · Cohesion</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:light dark;
+--bg:#faf9f7;--fg:#1a1a1a;--mut:#6b6b6b;--line:#e0ddd8;--card:#fff;
+--cell:#2f6f4f;--x:#b4442e;--dead:#c9a227;--grid:#eeebe6}
+@media(prefers-color-scheme:dark){:root{
+--bg:#16161a;--fg:#e8e6e3;--mut:#9a9a9a;--line:#2c2c33;--card:#1e1e24;
+--cell:#5fbf8f;--x:#e8735a;--dead:#e0b93a;--grid:#26262d}}
+*{box-sizing:border-box}
+body{margin:0;padding:2.5rem 1.5rem;background:var(--bg);color:var(--fg);
+font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}
+main{max-width:78rem;margin:0 auto}
+a.back{color:var(--mut);text-decoration:none;font-size:.85rem}
+h1{font-size:1.5rem;margin:.6rem 0 .2rem}
+.sub{color:var(--mut);margin:0 0 1.6rem}
+.narr{background:var(--card);border:1px solid var(--line);border-radius:.6rem;
+padding:1rem 1.2rem;margin:0 0 2rem}
+.narr p{margin:0 0 .6rem}.narr p:last-child{margin:0}
+.t{background:var(--card);border:1px solid var(--line);border-radius:.6rem;
+padding:1.2rem;margin:0 0 1.6rem;overflow-x:auto}
+.t h2{font-size:1.05rem;margin:0 0 .15rem;font-family:ui-monospace,monospace}
+.meta{color:var(--mut);font-size:.83rem;margin:0 0 1rem}
+.meta b{color:var(--fg);font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;font:11px/1 ui-monospace,SFMono-Regular,monospace}
+th.f{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);
+padding:.35rem .1rem;font-weight:400;color:var(--mut);white-space:nowrap;
+vertical-align:bottom;max-height:9rem}
+th.m{text-align:right;padding:.1rem .5rem .1rem 0;font-weight:400;
+color:var(--mut);white-space:nowrap}
+td{width:13px;height:13px;border:1px solid var(--grid);padding:0}
+td.on{background:var(--cell)}
+td.on.cross{background:var(--x)}
+th.f.shared{color:var(--x);font-weight:600}
+th.f.dead{color:var(--dead)}
+tr.b0 th.m,tr.b0 td{border-top:2px solid var(--line)}
+td.b0{border-left:2px solid var(--line)}
+.key{display:flex;gap:1.2rem;flex-wrap:wrap;color:var(--mut);
+font-size:.8rem;margin:.9rem 0 0}
+.key i{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;
+margin-right:.35rem;vertical-align:-1px}
+.blocks{margin:1rem 0 0;font-size:.83rem;color:var(--mut)}
+.blocks li{margin:0 0 .2rem}
+.blocks b{color:var(--fg)}
+.mc{background:var(--card);border:1px solid var(--line);border-radius:.6rem;
+padding:1.1rem 1.2rem}
+.mc h2{font-size:1rem;margin:0 0 .6rem}
+.mc li{font:12px/1.7 ui-monospace,monospace;color:var(--mut)}
+.mc b{color:var(--fg)}
+.empty{color:var(--mut)}
+</style>
+<main>
+<a class=back href="index.html">&larr; {{project}}</a>
+<h1>Cohesion</h1>
+<p class=sub>{{date}} · methods down, fields across; a cell is marked where a method touches a field</p>
+
+<div class=narr>
+  <p data-narr="cohesion"></p>
+  <p data-narr="coverage"></p>
+</div>
+
+<div id=out></div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById('data').textContent);
+var out = document.getElementById('out');
+var esc = function(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');};
+
+if (!D.types.length) {
+  out.innerHTML = '<p class=empty>No type is over threshold. '
+    + 'A type with fewer than five fields or three methods is not analysed: '
+    + 'lack of cohesion of methods is not a question you can ask of two.</p>';
+}
+
+D.types.forEach(function(t){
+  // Column -> block, so a mark outside its own block can be coloured as
+  // the cost of the split rather than as ordinary access.
+  var colBlock = [], rowBlock = [];
+  t.blocks.forEach(function(b, bi){
+    for (var c = b.col; c < b.col + b.cols; c++) colBlock[c] = bi;
+    for (var r = b.row; r < b.row + b.rows; r++) rowBlock[r] = bi;
+  });
+  var starts = {}; t.blocks.forEach(function(b){ starts[b.row] = 1; });
+  var colStarts = {}; t.blocks.forEach(function(b){ colStarts[b.col] = 1; });
+  var shared = {}; (t.shared||[]).forEach(function(c){ shared[c] = 1; });
+  var dead = {};
+  (t.unused||[]).concat(t.write_only||[]).forEach(function(f){
+    var i = t.fields.indexOf(f); if (i >= 0) dead[i] = 1;
+  });
+
+  var h = '<div class=t><h2>' + esc(t.name) + '</h2>';
+  h += '<p class=meta>' + esc(t.file) + ':' + t.line
+     + ' · <b>' + t.fields.length + '</b> fields'
+     + ' · <b>' + t.methods.length + '</b> methods'
+     + ' · LCOM4 <b>' + t.lcom4 + '</b>'
+     + ' · modularity <b>' + t.modularity.toFixed(3) + '</b>'
+     + ' · <b>' + esc(t.verdict) + '</b></p>';
+
+  h += '<table><thead><tr><th></th>';
+  t.fields.forEach(function(f, i){
+    var cls = 'f' + (shared[i] ? ' shared' : '') + (dead[i] ? ' dead' : '');
+    h += '<th class="' + cls + '">' + esc(f) + '</th>';
+  });
+  h += '</tr></thead><tbody>';
+  t.methods.forEach(function(m, r){
+    h += '<tr' + (starts[r] ? ' class=b0' : '') + '><th class=m>' + esc(m) + '</th>';
+    var on = {}; (t.cells[r]||[]).forEach(function(c){ on[c] = 1; });
+    for (var c = 0; c < t.fields.length; c++) {
+      var cls = [];
+      if (on[c]) { cls.push('on'); if (colBlock[c] !== rowBlock[r]) cls.push('cross'); }
+      if (colStarts[c]) cls.push('b0');
+      h += '<td' + (cls.length ? ' class="' + cls.join(' ') + '"' : '') + '></td>';
+    }
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+
+  h += '<div class=key>'
+     + '<span><i style="background:var(--cell)"></i>touches a field in its own component</span>'
+     + '<span><i style="background:var(--x)"></i>reaches across a component boundary ('
+     + t.cross_edges + ' accesses)</span>'
+     + '<span><i style="background:var(--dead)"></i>never read</span></div>';
+
+  h += '<ul class=blocks>';
+  t.blocks.forEach(function(b){
+    h += '<li><b>' + esc(b.name) + '</b> — ' + b.cols + ' fields, '
+       + b.rows + ' methods, ' + b.loc + ' loc</li>';
+  });
+  if ((t.shared||[]).length) {
+    h += '<li>shared across components: <b>'
+       + t.shared.map(function(c){ return esc(t.fields[c]); }).join(', ')
+       + '</b> — constructor parameters of each extracted type</li>';
+  }
+  if ((t.unused||[]).length) h += '<li>never touched: <b>' + t.unused.map(esc).join(', ') + '</b></li>';
+  if ((t.write_only||[]).length) h += '<li>written, never read: <b>' + t.write_only.map(esc).join(', ') + '</b></li>';
+  h += '</ul></div>';
+  out.insertAdjacentHTML('beforeend', h);
+});
+
+if (D.mixed_concern.length) {
+  var m = '<div class=mc><h2>Mixed-concern functions</h2><ul>';
+  D.mixed_concern.forEach(function(f){
+    m += '<li>' + esc(f.file) + ':' + f.line + ' <b>' + esc(f.symbol)
+       + '</b> [' + f.concerns.map(esc).join(' + ') + ']</li>';
+  });
+  out.insertAdjacentHTML('beforeend', m + '</ul></div>');
+}
+})();
+</script>
+</main>

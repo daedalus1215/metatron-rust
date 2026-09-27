@@ -1,0 +1,832 @@
+<!-- arch-views: Walk around it. Perspective camera, fly to any module, copyable context digest for talking to Claude. -->
+<!-- metatron: Walk around the system. One tower per module, one floor per directory; switch between measurable isometric and immersive perspective. -->
+<title>{{project}} City</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400&display=swap">
+
+<style>
+:root {
+  --paper:#EEF2F7; --surface:#FFFFFF; --surface2:#E3EAF2; --sunk:#D9E1EB;
+  --ink:#141D28; --ink2:#47596E; --ink3:#78899D;
+  --rule:#D0D9E3; --rule2:#B7C2D0;
+  --blue:#2B5CA8; --amber:#A85B06; --rose:#A31C39; --green:#1B6448; --violet:#54479A;
+  --t0:#3B72C4; --t1:#8A98A8; --t2:#6A5AB8; --t3:#C06E12; --t4:#22795A;
+  --t5:#8E7C58; --t6:#177F98; --t7:#9A4E82; --t8:#6E7D8E;
+  --sky:#DCE4EE; --ground:#C9D4E0; --gridline:#B3C0CF; --link:#B4741F; --warn:#C2410C;
+  --shadow:0 1px 2px rgba(20,29,40,.06), 0 10px 30px rgba(20,29,40,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#0B1117; --surface:#131B24; --surface2:#1A242F; --sunk:#0F171F;
+    --ink:#E2E9F1; --ink2:#9DAEC0; --ink3:#6A7B90;
+    --rule:#26323D; --rule2:#34434E;
+    --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6;
+    --t0:#5E93DE; --t1:#7E8C9C; --t2:#8B7CD8; --t3:#D9902F; --t4:#37A87C;
+    --t5:#B09A6C; --t6:#2E9EB8; --t7:#BE6C9F; --t8:#5C6B7C;
+    --sky:#0D141C; --ground:#18222C; --gridline:#243040; --link:#E0A04A; --warn:#F97316;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#0B1117; --surface:#131B24; --surface2:#1A242F; --sunk:#0F171F;
+  --ink:#E2E9F1; --ink2:#9DAEC0; --ink3:#6A7B90;
+  --rule:#26323D; --rule2:#34434E;
+  --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6;
+  --t0:#5E93DE; --t1:#7E8C9C; --t2:#8B7CD8; --t3:#D9902F; --t4:#37A87C;
+  --t5:#B09A6C; --t6:#2E9EB8; --t7:#BE6C9F; --t8:#5C6B7C;
+  --sky:#0D141C; --ground:#18222C; --gridline:#243040; --link:#E0A04A; --warn:#F97316;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.45);
+}
+
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink);
+  font-family:'Archivo',ui-sans-serif,system-ui,sans-serif; font-size:15px; line-height:1.55;
+  -webkit-font-smoothing:antialiased; }
+.mono { font-family:'IBM Plex Mono',ui-monospace,monospace; }
+.wrap { max-width:1620px; margin:0 auto; padding:0 24px 80px; }
+
+.mast { padding:44px 0 20px; border-bottom:2px solid var(--ink); }
+.eyebrow { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink3); margin:0 0 14px; }
+h1 { font-size:clamp(32px,5vw,58px); line-height:1.02; letter-spacing:-.03em; font-weight:700; margin:0; text-wrap:balance; }
+.dek { font-family:'Source Serif 4',Georgia,serif; font-size:18px; line-height:1.6; color:var(--ink2);
+  max-width:64ch; margin:16px 0 0; }
+
+.bar { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin:22px 0 10px; }
+.btn { font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:.04em;
+  border:1px solid var(--rule2); background:var(--surface); color:var(--ink2); padding:6px 11px; cursor:pointer; }
+.btn:hover { border-color:var(--ink3); color:var(--ink); }
+.btn.on { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.btn:focus-visible, input:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+#find { font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:6px 11px;
+  border:1px solid var(--rule2); background:var(--surface); color:var(--ink); min-width:190px; }
+.sep { width:1px; height:20px; background:var(--rule2); margin:0 3px; }
+.seg { display:flex; border:1px solid var(--rule2); }
+.seg button { font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:.04em;
+  padding:6px 12px; background:transparent; color:var(--ink3); border:0; cursor:pointer; }
+.seg button.on { background:var(--ink); color:var(--paper); }
+.seg button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+
+.stagewrap { display:grid; grid-template-columns:minmax(0,1fr) 380px; border:1px solid var(--rule2);
+  background:var(--surface); box-shadow:var(--shadow); }
+@media (max-width:1160px){ .stagewrap { grid-template-columns:minmax(0,1fr); } }
+.viewport { position:relative; background:var(--sky); min-height:520px; height:min(72vh,780px); overflow:hidden; }
+canvas { display:block; width:100%; height:100%; cursor:grab; touch-action:none; }
+canvas.drag { cursor:grabbing; }
+.hud { position:absolute; left:12px; bottom:10px; font-family:'IBM Plex Mono',monospace; font-size:10px;
+  color:var(--ink3); background:color-mix(in srgb, var(--sky) 78%, transparent); padding:5px 9px;
+  border:1px solid var(--rule); pointer-events:none; letter-spacing:.03em; }
+.tourcap { position:absolute; left:16px; right:16px; top:14px; max-width:520px;
+  background:color-mix(in srgb, var(--surface) 94%, transparent); border:1px solid var(--rule2);
+  padding:12px 15px; box-shadow:var(--shadow); display:none; }
+.tourcap.show { display:block; }
+.tourcap h4 { margin:0 0 4px; font-size:13.5px; font-weight:600; letter-spacing:-.01em; }
+.tourcap p { margin:0; font-size:13px; color:var(--ink2); line-height:1.5; }
+.tourcap .step { font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--ink3);
+  letter-spacing:.12em; text-transform:uppercase; }
+
+.side { border-left:1px solid var(--rule2); display:flex; flex-direction:column;
+  max-height:min(72vh,780px); overflow:auto; }
+@media (max-width:1160px){ .side { border-left:0; border-top:1px solid var(--rule2); max-height:600px; } }
+.side .pad { padding:15px 17px; }
+.empty { font-family:'Source Serif 4',Georgia,serif; font-style:italic; color:var(--ink3); }
+.side h3 { margin:0 0 2px; font-size:18px; font-weight:700; letter-spacing:-.02em; }
+.isub { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink3); margin:0 0 12px; }
+.ilab { font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--ink3); margin:15px 0 7px; padding-bottom:4px; border-bottom:1px solid var(--rule); }
+.flist { list-style:none; margin:0; padding:0; }
+.flist li { display:flex; align-items:center; gap:8px; font-family:'IBM Plex Mono',monospace;
+  font-size:10.5px; color:var(--ink2); padding:3.5px 0; border-bottom:1px dotted var(--rule); }
+.flist li .sw { width:11px; height:11px; flex:0 0 auto; }
+.flist li .nm { flex:1; color:var(--ink); word-break:break-all; }
+.flist li .ct { color:var(--ink3); font-variant-numeric:tabular-nums; }
+.tow { display:flex; align-items:center; gap:9px; width:100%; text-align:left; cursor:pointer;
+  font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:6px 8px; border:0;
+  background:transparent; color:var(--ink2); border-bottom:1px solid var(--rule); }
+.tow:hover { background:var(--surface2); color:var(--ink); }
+.tow.sel { background:var(--ink); color:var(--paper); }
+.tow .n { margin-left:auto; font-variant-numeric:tabular-nums; opacity:.7; }
+.tow .dot { width:7px; height:7px; border-radius:50%; background:var(--warn); flex:0 0 auto; }
+.tow .dot.none { background:transparent; }
+.warns { list-style:none; margin:0; padding:0; }
+.warns li { font-size:12.5px; color:var(--ink2); padding:5px 0 5px 11px; border-left:3px solid var(--warn);
+  margin-bottom:6px; background:var(--surface2); }
+.pills { display:flex; flex-wrap:wrap; gap:5px; }
+.pill { font-family:'IBM Plex Mono',monospace; font-size:9.5px; padding:2px 7px; border:1px solid var(--rule2);
+  color:var(--ink3); }
+.pill.gone { color:var(--warn); border-color:var(--warn); }
+pre { margin:0; background:var(--sunk); border:1px solid var(--rule); padding:11px 13px; overflow:auto;
+  font-family:'IBM Plex Mono',monospace; font-size:10.5px; line-height:1.5; color:var(--ink2);
+  max-height:260px; white-space:pre-wrap; word-break:break-word; }
+
+section { margin-top:48px; }
+.shead { display:flex; align-items:baseline; gap:13px; border-bottom:1px solid var(--rule2);
+  padding-bottom:9px; margin-bottom:18px; flex-wrap:wrap; }
+.shead h2 { font-size:21px; font-weight:600; letter-spacing:-.015em; margin:0; }
+.shead .num { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink3); letter-spacing:.1em; }
+.note { font-family:'Source Serif 4',Georgia,serif; font-size:16.5px; line-height:1.65; color:var(--ink2); max-width:68ch; }
+.note + .note { margin-top:12px; }
+.note strong { color:var(--ink); font-weight:400;
+  box-shadow:inset 0 -0.5em 0 color-mix(in srgb, var(--amber) 18%, transparent); }
+.keys { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:9px; margin-top:16px; }
+.key { border:1px solid var(--rule2); background:var(--surface); padding:10px 13px; }
+.key b { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink); display:block; margin-bottom:2px; }
+.key span { font-size:12.5px; color:var(--ink2); }
+footer { margin-top:60px; padding-top:20px; border-top:2px solid var(--ink); color:var(--ink3); }
+@media (prefers-reduced-motion:reduce){ .tourcap { transition:none; } }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Isometric and perspective · hand-written renderer · regenerated by metatron</p>
+  <h1>{{project}} City</h1>
+  <p class="dek">A place rather than a picture. Drag to orbit, scroll to fly in, click any tower to travel to it. Each tower is a module, each floor a real directory, and the vertical axis is the request path — <strong>you arrive at the roof and descend to the database</strong>.</p>
+</header>
+
+<div class="bar">
+  <div class="seg" role="group" aria-label="Projection">
+    <button id="pIso" class="on" title="Parallel projection — equal things stay equal, so heights are comparable">Isometric</button>
+    <button id="pPersp" title="Perspective projection — nearer things look larger, as a camera sees them">Perspective</button>
+  </div>
+  <span class="sep"></span>
+  <button class="btn" id="tour">▶ guided tour</button>
+  <span class="sep"></span>
+  <button class="btn on" id="tLinks">dependencies</button>
+  <button class="btn on" id="tMarks">deviation markers</button>
+  <button class="btn on" id="tLabels">labels</button>
+  <span class="sep"></span>
+  <input id="find" type="search" placeholder="fly to module…" aria-label="Fly to a module">
+  <button class="btn" id="home">reset camera</button>
+</div>
+
+<div class="stagewrap" data-fullscreen data-fs-grow>
+  <div class="viewport" id="viewport">
+    <canvas id="cv" tabindex="0" aria-label="Interactive 3D city view of the {{project}} backend"></canvas>
+    <div class="hud" id="hud"></div>
+    <div class="tourcap" id="tourcap"><span class="step" id="tourstep"></span><h4 id="tourh"></h4><p id="tourp"></p></div>
+  </div>
+  <aside class="side" id="side"></aside>
+</div>
+
+<section>
+  <div class="shead"><span class="num">01</span><h2>Flying it</h2></div>
+  <div class="keys">
+    <div class="key"><b>drag</b><span>Orbit the camera around what you are looking at.</span></div>
+    <div class="key"><b>scroll</b><span>Dolly in and out along the view direction.</span></div>
+    <div class="key"><b>shift + drag</b><span>Pan across the city without rotating.</span></div>
+    <div class="key"><b>click a tower</b><span>Fly to it and open it in the panel.</span></div>
+    <div class="key"><b>W A S D</b><span>Walk the camera target over the ground plane.</span></div>
+    <div class="key"><b>Esc</b><span>Deselect and pull back out.</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">02</span><h2>Reading the city</h2></div>
+  <p class="note" data-narr="skyline"></p>
+  <p class="note">The amber pylons are deviations from the rules the repo writes down for itself, sited on the module they belong to. The arcs overhead are cross-domain dependencies.</p>
+  <p class="note" data-narr="deviations"></p>
+  <p class="note" data-narr="absent"></p>
+</section>
+
+<section>
+  <div class="shead"><span class="num">03</span><h2>Taking it to Claude</h2></div>
+  <p class="note">Selecting a tower fills the <strong>Context</strong> block in the panel with a plain-text digest of exactly what you are looking at — its floors, its absent tiers, its deviations and its dependencies. Copy it into a conversation and the model has the same view you do, without you narrating the codebase from memory.</p>
+</section>
+
+<section>
+  <div class="shead"><span class="num">04</span><h2>What is real, and what is staging</h2></div>
+  <p class="note" data-narr="provenance"></p>
+  <p class="note" data-narr="caveats"></p>
+  <p class="note">The renderer is hand-written: a perspective camera, back-face culling and painter's-algorithm depth sorting on canvas. There is no depth buffer, so if two towers ever interpenetrate the sort could pick wrong — they are laid out so they never do.</p>
+</section>
+
+<footer>
+  <p class="note" style="font-size:14.5px">Generated by <span class="mono">metatron</span> · <span id="gen"></span> · <span id="footstats"></span></p>
+</footer>
+
+</div>
+
+<script id="scene" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+var S = JSON.parse(document.getElementById('scene').textContent);
+var PROJECT = '{{project}}';
+document.getElementById('gen').textContent = new Date(S.generatedAt).toISOString().slice(0,10);
+document.getElementById('footstats').textContent =
+  S.stats.files + ' files · ' + S.stats.edges + ' imports · ' + S.modules.length + ' towers · ' +
+  S.stats.endpoints + ' endpoints';
+
+/* ================= scene construction ================= */
+var COLS = 4, SPACING = 30;
+function buildCity(){
+  var list = S.modules.map(function(m){
+    var floors = [], y = 0;
+    m.floors.forEach(function(f){
+      var h = 1.1 + f.count * 0.55;
+      floors.push({ f:f, y0:y, y1:y+h });
+      y += h + 0.22;
+    });
+    var side = 5.5 + Math.min(6, Math.sqrt(m.files) * 0.9);
+    return { id:m.id, mod:m, floors:floors, top:y, side:side };
+  });
+  list.sort(function(a,b){ return b.top - a.top; }); // tallest to the back
+  var rows = Math.ceil(list.length / COLS);
+  list.forEach(function(b, i){
+    var r = Math.floor(i / COLS), c = i % COLS;
+    b.x = (c - (COLS-1)/2) * SPACING;
+    b.z = (r - (rows-1)/2) * SPACING;
+  });
+  return list;
+}
+var CITY = buildCity();
+var byId = {}; CITY.forEach(function(b){ byId[b.id] = b; });
+
+/* ================= palette ================= */
+var PAL = {};
+function readPalette(){
+  var cs = getComputedStyle(document.documentElement);
+  ['t0','t1','t2','t3','t4','t5','t6','t7','t8','sky','ground','gridline','ink','ink3','link','warn','rule2']
+    .forEach(function(k){ PAL[k] = (cs.getPropertyValue('--'+k) || '').trim() || '#888888'; });
+}
+readPalette();
+function hex2rgb(h){
+  h = h.replace('#','');
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  var n = parseInt(h, 16);
+  return [ (n>>16)&255, (n>>8)&255, n&255 ];
+}
+var rgbCache = {};
+function shade(hex, k, alpha){
+  var key = hex+'|'+k.toFixed(2)+'|'+(alpha===undefined?1:alpha);
+  if (rgbCache[key]) return rgbCache[key];
+  var c = hex2rgb(hex);
+  var r = Math.max(0, Math.min(255, Math.round(c[0]*k)));
+  var g = Math.max(0, Math.min(255, Math.round(c[1]*k)));
+  var b = Math.max(0, Math.min(255, Math.round(c[2]*k)));
+  var s = alpha === undefined || alpha >= 1 ? 'rgb('+r+','+g+','+b+')' : 'rgba('+r+','+g+','+b+','+alpha+')';
+  rgbCache[key] = s;
+  return s;
+}
+
+/* ================= camera ================= */
+var cam = { tx:0, ty:6, tz:0, dist:118, yaw:Math.PI/4, pitch:0.4636, fov:52*Math.PI/180 };
+var HOME = JSON.parse(JSON.stringify(cam));
+var tween = null;
+function eyePos(){
+  var ce = Math.cos(cam.pitch), se = Math.sin(cam.pitch);
+  return [ cam.tx + cam.dist*ce*Math.cos(cam.yaw), cam.ty + cam.dist*se, cam.tz + cam.dist*ce*Math.sin(cam.yaw) ];
+}
+var VIEW = { eye:[0,0,0], r:[1,0,0], u:[0,1,0], f:[0,0,1], focal:600, cx:0, cy:0 };
+function updateView(W, H){
+  var eye = eyePos();
+  var fx = cam.tx-eye[0], fy = cam.ty-eye[1], fz = cam.tz-eye[2];
+  var fl = Math.hypot(fx,fy,fz) || 1; fx/=fl; fy/=fl; fz/=fl;
+  // right = normalize(cross(forward, worldUp)); with up=(0,1,0) that is (-f.z, 0, f.x)
+  var rx = -fz, ry = 0, rz = fx;
+  var rl = Math.hypot(rx,ry,rz) || 1; rx/=rl; ry/=rl; rz/=rl;
+  // up = cross(right, f)
+  var ux = ry*fz - rz*fy, uy = rz*fx - rx*fz, uz = rx*fy - ry*fx;
+  VIEW.eye = eye; VIEW.r = [rx,ry,rz]; VIEW.u = [ux,uy,uz]; VIEW.f = [fx,fy,fz];
+  VIEW.focal = (H/2) / Math.tan(cam.fov/2);
+  VIEW.cx = W/2; VIEW.cy = H/2;
+}
+var NEAR = 1.2;
+/**
+ * The only difference between the two projections is whether the on-screen
+ * scale depends on depth.
+ *
+ *   perspective  s = focal / vz    things further away are drawn smaller
+ *   parallel     s = focal / dist  everything drawn at the scale of the aim point
+ *
+ * vz is still returned in both, because depth sorting needs it either way.
+ */
+function project(p){
+  var dx = p[0]-VIEW.eye[0], dy = p[1]-VIEW.eye[1], dz = p[2]-VIEW.eye[2];
+  var vz = dx*VIEW.f[0] + dy*VIEW.f[1] + dz*VIEW.f[2];
+  if (vz < NEAR) return null;
+  var vx = dx*VIEW.r[0] + dy*VIEW.r[1] + dz*VIEW.r[2];
+  var vy = dx*VIEW.u[0] + dy*VIEW.u[1] + dz*VIEW.u[2];
+  var s = state.proj === 'iso' ? VIEW.focal / cam.dist : VIEW.focal / vz;
+  return [ VIEW.cx + vx*s, VIEW.cy - vy*s, vz ];
+}
+
+/* ================= geometry ================= */
+var FACES = [
+  { n:[0,1,0],  v:[[0,1,0],[1,1,0],[1,1,1],[0,1,1]] },  // top
+  { n:[0,-1,0], v:[[0,0,1],[1,0,1],[1,0,0],[0,0,0]] },  // bottom
+  { n:[0,0,-1], v:[[0,0,0],[1,0,0],[1,1,0],[0,1,0]] },  // -z
+  { n:[0,0,1],  v:[[1,0,1],[0,0,1],[0,1,1],[1,1,1]] },  // +z
+  { n:[-1,0,0], v:[[0,0,1],[0,0,0],[0,1,0],[0,1,1]] },  // -x
+  { n:[1,0,0],  v:[[1,0,0],[1,0,1],[1,1,1],[1,1,0]] }   // +x
+];
+var LIGHT = (function(){ var l=[0.42,0.84,0.34]; var m=Math.hypot(l[0],l[1],l[2]); return [l[0]/m,l[1]/m,l[2]/m]; })();
+
+function boxFaces(x0,y0,z0,x1,y1,z1, colorKey, meta, out){
+  for (var i=0;i<FACES.length;i++){
+    var F = FACES[i];
+    var pts = [], cx=0, cy=0, cz=0, ok = true;
+    for (var j=0;j<4;j++){
+      var v = F.v[j];
+      var wx = v[0]?x1:x0, wy = v[1]?y1:y0, wz = v[2]?z1:z0;
+      cx+=wx; cy+=wy; cz+=wz;
+      var p = project([wx,wy,wz]);
+      if (!p) { ok=false; break; }
+      pts.push(p);
+    }
+    if (!ok) continue;
+    cx/=4; cy/=4; cz/=4;
+    // back-face cull: face normal vs direction from eye to face
+    var ex = cx-VIEW.eye[0], ey = cy-VIEW.eye[1], ez = cz-VIEW.eye[2];
+    if (F.n[0]*ex + F.n[1]*ey + F.n[2]*ez >= 0) continue;
+    var lam = 0.42 + 0.58 * Math.max(0, F.n[0]*LIGHT[0] + F.n[1]*LIGHT[1] + F.n[2]*LIGHT[2]);
+    var d = (pts[0][2]+pts[1][2]+pts[2][2]+pts[3][2])/4;
+    out.push({ pts:pts, depth:d, color:shade(PAL[colorKey], lam), meta:meta, edge:lam });
+  }
+}
+
+/* ================= state ================= */
+var state = { sel:null, links:true, marks:true, labels:true, hover:null, proj:'iso' };
+
+/* ================= render ================= */
+var cv = document.getElementById('cv');
+var ctx = cv.getContext('2d');
+var VP = document.getElementById('viewport');
+var W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  var r = VP.getBoundingClientRect();
+  W = Math.max(320, Math.floor(r.width));
+  H = Math.max(320, Math.floor(r.height));
+  cv.width = Math.floor(W*DPR); cv.height = Math.floor(H*DPR);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+}
+resize();
+if (window.ResizeObserver) new ResizeObserver(resize).observe(VP);
+else window.addEventListener('resize', resize);
+
+function draw(){
+  updateView(W, H);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = PAL.sky; ctx.fillRect(0,0,W,H);
+
+  // ground grid
+  var half = (COLS*SPACING)/2 + SPACING, step = SPACING/2;
+  ctx.strokeStyle = PAL.gridline; ctx.lineWidth = 1; ctx.globalAlpha = .5;
+  ctx.beginPath();
+  for (var g=-half; g<=half+0.001; g+=step){
+    var a1 = project([g,0,-half]), a2 = project([g,0,half]);
+    if (a1 && a2) { ctx.moveTo(a1[0],a1[1]); ctx.lineTo(a2[0],a2[1]); }
+    var b1 = project([-half,0,g]), b2 = project([half,0,g]);
+    if (b1 && b2) { ctx.moveTo(b1[0],b1[1]); ctx.lineTo(b2[0],b2[1]); }
+  }
+  ctx.stroke(); ctx.globalAlpha = 1;
+
+  // collect faces
+  var faces = [];
+  CITY.forEach(function(b){
+    var h = b.side/2;
+    var dim = state.sel && state.sel !== b.id;
+    b.floors.forEach(function(fl){
+      var key = 't' + Math.min(8, fl.f.tier);
+      boxFaces(b.x-h, fl.y0, b.z-h, b.x+h, fl.y1, b.z+h, key, { b:b, fl:fl, dim:dim }, faces);
+    });
+    // deviation pylon
+    if (state.marks && b.mod.findings.length){
+      var pw = 0.45;
+      boxFaces(b.x-pw, b.top+1.2, b.z-pw, b.x+pw, b.top+1.2+3.4+b.mod.findings.length*0.9, b.z+pw,
+        'warn', { b:b, mark:true, dim:dim }, faces);
+    }
+  });
+  faces.sort(function(a,b){ return b.depth - a.depth; });
+
+  for (var i=0;i<faces.length;i++){
+    var F = faces[i], p = F.pts;
+    ctx.globalAlpha = F.meta.dim ? 0.3 : 1;
+    ctx.beginPath();
+    ctx.moveTo(p[0][0],p[0][1]);
+    for (var k=1;k<4;k++) ctx.lineTo(p[k][0],p[k][1]);
+    ctx.closePath();
+    ctx.fillStyle = F.color; ctx.fill();
+    if (F.depth < 220){
+      ctx.strokeStyle = shade(PAL.sky, 0.55, 0.5); ctx.lineWidth = 0.6; ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // dependency arcs
+  if (state.links){
+    ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    S.domainEdges.forEach(function(e){
+      var A = byId[e.f], B = byId[e.t];
+      if (!A || !B) return;
+      var hot = state.sel && (state.sel === e.f || state.sel === e.t);
+      if (state.sel && !hot) return;
+      var a = [A.x, A.top+2, A.z], b2 = [B.x, B.top+2, B.z];
+      var lift = 10 + Math.min(26, e.w*0.7);
+      var mid = [(a[0]+b2[0])/2, Math.max(a[1],b2[1]) + lift, (a[2]+b2[2])/2];
+      ctx.beginPath();
+      var started = false, broke = false;
+      for (var t=0;t<=1.0001;t+=1/24){
+        var it = 1-t;
+        var pt = [ it*it*a[0]+2*it*t*mid[0]+t*t*b2[0],
+                   it*it*a[1]+2*it*t*mid[1]+t*t*b2[1],
+                   it*it*a[2]+2*it*t*mid[2]+t*t*b2[2] ];
+        var pp = project(pt);
+        if (!pp) { broke = true; continue; }
+        if (!started || broke) { ctx.moveTo(pp[0],pp[1]); started = true; broke = false; }
+        else ctx.lineTo(pp[0],pp[1]);
+      }
+      ctx.strokeStyle = shade(PAL.link, 1, hot ? 0.95 : 0.5);
+      ctx.lineWidth = hot ? 2.6 : 1.5;
+      ctx.stroke();
+    });
+  }
+
+  // labels
+  if (state.labels){
+    ctx.textAlign = 'center';
+    CITY.forEach(function(b){
+      var p = project([b.x, b.top + (state.marks && b.mod.findings.length ? 7.5 : 3.4), b.z]);
+      if (!p) return;
+      if (p[0] < -60 || p[0] > W+60 || p[1] < -30 || p[1] > H+30) return;
+      var fade = Math.max(0.25, Math.min(1, 260/p[2]));
+      var sel = state.sel === b.id;
+      ctx.globalAlpha = state.sel && !sel ? 0.25 : fade;
+      ctx.font = '600 12px "IBM Plex Mono", monospace';
+      ctx.fillStyle = PAL.ink;
+      ctx.fillText(b.id, p[0], p[1]);
+      ctx.font = '400 9.5px "IBM Plex Mono", monospace';
+      ctx.fillStyle = PAL.ink3;
+      ctx.fillText(b.mod.files + 'f · ' + b.floors.length + ' floors', p[0], p[1]+11);
+      ctx.globalAlpha = 1;
+    });
+    ctx.textAlign = 'start';
+  }
+
+  document.getElementById('hud').textContent =
+    'dist ' + cam.dist.toFixed(0) + '  ·  yaw ' + (cam.yaw*180/Math.PI).toFixed(0) + '°  ·  pitch ' +
+    (cam.pitch*180/Math.PI).toFixed(0) + '°' + (state.sel ? '  ·  ' + state.sel : '');
+}
+
+function loop(now){
+  if (tween){
+    var t = Math.min(1, (now - tween.t0) / tween.dur);
+    var e = t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+    cam.tx = tween.a.tx + (tween.b.tx-tween.a.tx)*e;
+    cam.ty = tween.a.ty + (tween.b.ty-tween.a.ty)*e;
+    cam.tz = tween.a.tz + (tween.b.tz-tween.a.tz)*e;
+    cam.dist = tween.a.dist + (tween.b.dist-tween.a.dist)*e;
+    cam.yaw = tween.a.yaw + (tween.b.yaw-tween.a.yaw)*e;
+    cam.pitch = tween.a.pitch + (tween.b.pitch-tween.a.pitch)*e;
+    if (t >= 1) tween = null;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function flyTo(target, dur){
+  tween = { t0: performance.now(), dur: dur || 850,
+    a: { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch },
+    b: target };
+}
+function flyToModule(id){
+  var b = byId[id]; if (!b) return;
+  flyTo({ tx:b.x, ty:b.top*0.55, tz:b.z, dist: Math.max(34, b.top*2.1 + b.side*2.4),
+          yaw: cam.yaw, pitch: 0.34 });
+}
+
+/* Frames the whole city, labels and deviation pylons included, so nothing is
+   clipped at any viewport size. */
+function fitCity(){
+  if (!W || !H) return;
+  var pts = [];
+  CITY.forEach(function(b){
+    var h = b.side/2 * 1.25;
+    var head = b.top + (b.mod.findings.length ? 11 : 6);
+    [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(function(o){
+      pts.push([b.x+o[0]*h, 0, b.z+o[1]*h]);
+      pts.push([b.x+o[0]*h, head, b.z+o[1]*h]);
+    });
+  });
+  for (var it=0; it<10; it++){
+    updateView(W,H);
+    var minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9, clipped=false;
+    for (var i=0;i<pts.length;i++){
+      var q = project(pts[i]);
+      if (!q){ clipped = true; break; }
+      if (q[0]<minX) minX=q[0]; if (q[0]>maxX) maxX=q[0];
+      if (q[1]<minY) minY=q[1]; if (q[1]>maxY) maxY=q[1];
+    }
+    if (clipped){ cam.dist = Math.min(400, cam.dist*1.3); continue; }
+    var scale = cam.dist / VIEW.focal;
+    var dx = ((minX+maxX)/2) - W/2, dy = ((minY+maxY)/2) - H/2;
+    cam.tx += (VIEW.r[0]*dx - VIEW.u[0]*dy) * scale;
+    cam.ty += (VIEW.r[1]*dx - VIEW.u[1]*dy) * scale;
+    cam.tz += (VIEW.r[2]*dx - VIEW.u[2]*dy) * scale;
+    var need = Math.max((maxX-minX)/(W*0.88), (maxY-minY)/(H*0.88));
+    if (Math.abs(need-1) < 0.015 && Math.abs(dx) < 2 && Math.abs(dy) < 2) break;
+    cam.dist = Math.max(20, Math.min(400, cam.dist*need));
+  }
+}
+
+/* ================= picking ================= */
+function hull(points){
+  var p = points.slice().sort(function(a,b){ return a[0]-b[0] || a[1]-b[1]; });
+  function cross(o,a,b){ return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]); }
+  var lo=[], hi=[];
+  for (var i=0;i<p.length;i++){ while(lo.length>=2 && cross(lo[lo.length-2],lo[lo.length-1],p[i])<=0) lo.pop(); lo.push(p[i]); }
+  for (var j=p.length-1;j>=0;j--){ while(hi.length>=2 && cross(hi[hi.length-2],hi[hi.length-1],p[j])<=0) hi.pop(); hi.push(p[j]); }
+  lo.pop(); hi.pop();
+  return lo.concat(hi);
+}
+function inPoly(pt, poly){
+  var inside = false;
+  for (var i=0,j=poly.length-1;i<poly.length;j=i++){
+    var xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+    if (((yi>pt[1]) !== (yj>pt[1])) && (pt[0] < (xj-xi)*(pt[1]-yi)/((yj-yi)||1e-9) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function pick(mx, my){
+  var best = null;
+  CITY.forEach(function(b){
+    var h = b.side/2, pts = [], zs = [];
+    for (var i=0;i<8;i++){
+      var p = project([ b.x + (i&1?h:-h), (i&2? b.top : 0), b.z + (i&4?h:-h) ]);
+      if (!p) return;
+      pts.push([p[0],p[1]]); zs.push(p[2]);
+    }
+    if (pts.length < 8) return;
+    var poly = hull(pts);
+    if (poly.length >= 3 && inPoly([mx,my], poly)){
+      var d = Math.min.apply(null, zs);
+      if (!best || d < best.d) best = { id:b.id, d:d };
+    }
+  });
+  return best ? best.id : null;
+}
+
+/* ================= input ================= */
+var drag = null;
+cv.addEventListener('pointerdown', function(ev){
+  cv.setPointerCapture(ev.pointerId);
+  drag = { x:ev.clientX, y:ev.clientY, moved:0, pan: ev.shiftKey || ev.button===1 };
+  cv.classList.add('drag');
+});
+cv.addEventListener('pointermove', function(ev){
+  if (!drag) return;
+  var dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  drag.moved += Math.abs(dx) + Math.abs(dy);
+  drag.x = ev.clientX; drag.y = ev.clientY;
+  tween = null;
+  if (drag.pan){
+    var sc = cam.dist * 0.0016;
+    cam.tx -= (VIEW.r[0]*dx + VIEW.f[0]*(-dy)) * sc;
+    cam.tz -= (VIEW.r[2]*dx + VIEW.f[2]*(-dy)) * sc;
+  } else {
+    cam.yaw += dx * 0.006;
+    cam.pitch = Math.max(0.06, Math.min(1.45, cam.pitch + dy * 0.005));
+  }
+});
+function endDrag(ev){
+  if (!drag) return;
+  cv.classList.remove('drag');
+  if (drag.moved < 5){
+    var r = cv.getBoundingClientRect();
+    var id = pick(ev.clientX - r.left, ev.clientY - r.top);
+    select(id);
+    if (id) flyToModule(id);
+  }
+  drag = null;
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', function(){ drag = null; cv.classList.remove('drag'); });
+cv.addEventListener('wheel', function(ev){
+  ev.preventDefault();
+  tween = null;
+  cam.dist = Math.max(12, Math.min(300, cam.dist * Math.exp(ev.deltaY * 0.0012)));
+}, { passive:false });
+cv.addEventListener('keydown', function(ev){
+  var sc = cam.dist * 0.035, used = true;
+  if (ev.key === 'w' || ev.key === 'ArrowUp')        { cam.tx += VIEW.f[0]*sc; cam.tz += VIEW.f[2]*sc; }
+  else if (ev.key === 's' || ev.key === 'ArrowDown') { cam.tx -= VIEW.f[0]*sc; cam.tz -= VIEW.f[2]*sc; }
+  else if (ev.key === 'a' || ev.key === 'ArrowLeft') { cam.tx -= VIEW.r[0]*sc; cam.tz -= VIEW.r[2]*sc; }
+  else if (ev.key === 'd' || ev.key === 'ArrowRight'){ cam.tx += VIEW.r[0]*sc; cam.tz += VIEW.r[2]*sc; }
+  else if (ev.key === 'Escape') { select(null); flyTo(HOME); }
+  else used = false;
+  if (used) { ev.preventDefault(); tween = null; }
+});
+
+/* ================= panel ================= */
+function tierName(i){ return (S.tiers[i] || { name:'?' }).name; }
+
+function digest(id){
+  var lines = [];
+  if (!id){
+    lines.push(PROJECT + ' — whole system');
+    lines.push(S.stats.files + ' files, ' + S.stats.edges + ' internal imports, ' + S.modules.length + ' modules with architectural layers');
+    lines.push(S.stats.endpoints + ' HTTP endpoints, ' + S.stats.hops + ' traced call hops');
+    lines.push('');
+    lines.push('Deviations found:');
+    S.findings.filter(function(f){ return f.tone === 'warn'; })
+      .forEach(function(f){ lines.push('  - ' + f.title + ' (' + f.items.length + ')'); });
+    return lines.join('\n');
+  }
+  var m = byId[id].mod;
+  lines.push('Module: ' + m.id);
+  lines.push(m.files + ' files across ' + m.floors.length + ' directories, ' + m.endpoints + ' endpoints');
+  lines.push('');
+  lines.push('Directories (architectural tier -> path, file count):');
+  m.floors.forEach(function(f){ lines.push('  ' + tierName(f.tier) + ' -> ' + f.id + '  (' + f.count + ')'); });
+  if (m.absent.length){
+    lines.push('');
+    lines.push('Tiers absent: ' + m.absent.map(tierName).join(', '));
+  }
+  var out = S.domainEdges.filter(function(e){ return e.f === id; });
+  var inc = S.domainEdges.filter(function(e){ return e.t === id; });
+  lines.push('');
+  lines.push('Depends on: ' + (out.length ? out.map(function(e){ return e.t + ' (x' + e.w + ')'; }).join(', ') : 'nothing'));
+  lines.push('Depended on by: ' + (inc.length ? inc.map(function(e){ return e.f + ' (x' + e.w + ')'; }).join(', ') : 'nothing'));
+  if (m.findings.length){
+    lines.push('');
+    lines.push('Deviations sited here:');
+    m.findings.forEach(function(w){
+      var full = S.findings.filter(function(x){ return x.id === w.id; })[0];
+      var mine = full ? full.items.filter(function(i){ return String(i).indexOf(m.id + '/') === 0; }) : [];
+      lines.push('  - ' + w.title);
+      mine.slice(0,6).forEach(function(i){ lines.push('      ' + i); });
+    });
+  }
+  return lines.join('\n');
+}
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderSide(){
+  var el = document.getElementById('side');
+  var h = [];
+  h.push('<div class="pad">');
+  if (!state.sel){
+    h.push('<p class="empty" style="margin:0 0 14px">Click a tower in the city, or pick one below. The camera will fly to it.</p>');
+  } else {
+    var b = byId[state.sel], m = b.mod;
+    h.push('<h3>'+esc(m.id)+'</h3>');
+    h.push('<p class="isub">'+m.files+' files · '+m.floors.length+' directories · '+m.endpoints+' endpoints</p>');
+    if (m.findings.length){
+      h.push('<p class="ilab">Deviations sited here</p><ul class="warns">');
+      m.findings.forEach(function(w){ h.push('<li>'+esc(w.title)+'</li>'); });
+      h.push('</ul>');
+    }
+    h.push('<p class="ilab">Storeys — roof to foundation</p><ul class="flist">');
+    m.floors.forEach(function(f){
+      h.push('<li><span class="sw" style="background:var(--t'+Math.min(8,f.tier)+')"></span>'+
+        '<span class="nm">'+esc(f.label)+'</span><span class="ct">'+f.count+'</span></li>');
+    });
+    h.push('</ul>');
+    if (m.absent.length){
+      h.push('<p class="ilab">Tiers absent</p><div class="pills">'+
+        m.absent.map(function(i){ return '<span class="pill gone">'+esc(tierName(i))+'</span>'; }).join('')+'</div>');
+    }
+  }
+  h.push('<p class="ilab">Context for Claude</p>');
+  h.push('<pre id="dig">'+esc(digest(state.sel))+'</pre>');
+  h.push('<button class="btn" id="copy" style="margin-top:8px">copy context</button>');
+  h.push('<p class="ilab">Towers</p>');
+  S.modules.forEach(function(m2){
+    h.push('<button class="tow'+(state.sel===m2.id?' sel':'')+'" data-m="'+esc(m2.id)+'">'+
+      '<span class="dot'+(m2.findings.length?'':' none')+'"></span>'+esc(m2.id)+
+      '<span class="n">'+m2.files+'f</span></button>');
+  });
+  h.push('</div>');
+  el.innerHTML = h.join('');
+
+  el.querySelectorAll('.tow').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-m');
+      select(id); flyToModule(id);
+    });
+  });
+  var cp = document.getElementById('copy');
+  if (cp) cp.addEventListener('click', function(){
+    var txt = digest(state.sel);
+    var done = function(){ cp.textContent = 'copied ✓'; setTimeout(function(){ cp.textContent = 'copy context'; }, 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(done, function(){ selectPre(); });
+    } else selectPre();
+    function selectPre(){
+      var pre = document.getElementById('dig');
+      var r = document.createRange(); r.selectNodeContents(pre);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      cp.textContent = 'selected — press ⌘C';
+      setTimeout(function(){ cp.textContent = 'copy context'; }, 2200);
+    }
+  });
+}
+function select(id){ state.sel = id; renderSide(); }
+
+/* ================= tour ================= */
+var TOUR = [
+  { m:null, h:'Eleven towers, one city', p:'Every module with architectural layers, drawn to the same scale. Height is how many layers a module actually has, so the skyline is a conformance chart.' },
+  { m:'notes', h:'notes — the full stack', p:'Thirteen directories, every tier present except Mapping. This is the shape the architecture document describes, and the yardstick for the rest.' },
+  { m:'folders', h:'folders — no Service storey', p:'Ten actions, six transaction scripts, and nothing in between. Every folders action calls a transaction script directly because there is no service to call.' },
+  { m:'note-transfer', h:'note-transfer — built on ports', p:'Entry and Service resting straight on a foundation of ports. No transaction scripts, no repositories, no tables. It writes into four other domains without any of them knowing it exists.' },
+  { m:'security-events', h:'security-events — no roof', p:'No Entry floor: no route reaches it. It exists only as an Aggregator that auth and users call when something needs recording.' },
+  { m:'shared-kernel', h:'shared-kernel — everyone depends here', p:'The guards and decorators every action imports. It is also the one place a cross-domain entity reference is allowed, in the tag-note join entity.' }
+];
+var tourIdx = -1, tourTimer = null;
+function tourStep(){
+  tourIdx++;
+  if (tourIdx >= TOUR.length){ stopTour(); return; }
+  var s = TOUR[tourIdx];
+  document.getElementById('tourstep').textContent = 'stop ' + (tourIdx+1) + ' of ' + TOUR.length;
+  document.getElementById('tourh').textContent = s.h;
+  document.getElementById('tourp').textContent = s.p;
+  document.getElementById('tourcap').classList.add('show');
+  if (s.m){ select(s.m); flyToModule(s.m); }
+  else { select(null); flyTo({ tx:0, ty:10, tz:0, dist:150, yaw:cam.yaw+0.5, pitch:0.5 }, 1200); }
+  tourTimer = setTimeout(tourStep, 7000);
+}
+function stopTour(){
+  clearTimeout(tourTimer); tourTimer = null; tourIdx = -1;
+  document.getElementById('tourcap').classList.remove('show');
+  document.getElementById('tour').classList.remove('on');
+  document.getElementById('tour').textContent = '▶ guided tour';
+}
+document.getElementById('tour').addEventListener('click', function(){
+  if (tourTimer){ stopTour(); return; }
+  this.classList.add('on'); this.textContent = '■ stop tour';
+  tourIdx = -1; tourStep();
+});
+
+/* ================= controls ================= */
+function toggle(id, key){
+  var b = document.getElementById(id);
+  b.addEventListener('click', function(){ state[key] = !state[key]; b.classList.toggle('on', state[key]); });
+}
+toggle('tLinks','links'); toggle('tMarks','marks'); toggle('tLabels','labels');
+
+/* Switching to isometric snaps to the canonical 2:1 angle so the classic
+   crispness is the default; you can orbit freely from there in either mode. */
+function setProjection(mode){
+  if (state.proj === mode) return;
+  state.proj = mode;
+  document.getElementById('pIso').classList.toggle('on', mode === 'iso');
+  document.getElementById('pPersp').classList.toggle('on', mode === 'persp');
+  var goal = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+  if (mode === 'iso') {
+    goal.pitch = 0.4636;
+    goal.yaw = Math.round(cam.yaw / (Math.PI/4)) * (Math.PI/4);
+  }
+  var save = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+  cam.pitch = goal.pitch; cam.yaw = goal.yaw;
+  fitCity();
+  goal = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+  cam.tx=save.tx; cam.ty=save.ty; cam.tz=save.tz; cam.dist=save.dist; cam.yaw=save.yaw; cam.pitch=save.pitch;
+  flyTo(goal, 650);
+}
+document.getElementById('pIso').addEventListener('click', function(){ setProjection('iso'); });
+document.getElementById('pPersp').addEventListener('click', function(){ setProjection('persp'); });
+document.getElementById('home').addEventListener('click', function(){ select(null); flyTo(HOME); });
+document.getElementById('find').addEventListener('input', function(ev){
+  var q = ev.target.value.trim().toLowerCase();
+  if (!q) return;
+  var hit = S.modules.filter(function(m){ return m.id.toLowerCase().indexOf(q) === 0; })[0]
+         || S.modules.filter(function(m){ return m.id.toLowerCase().indexOf(q) >= 0; })[0];
+  if (hit){ select(hit.id); flyToModule(hit.id); }
+});
+
+if (window.matchMedia){
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq.addEventListener) mq.addEventListener('change', function(){ rgbCache = {}; readPalette(); });
+}
+if (window.MutationObserver){
+  new MutationObserver(function(){ rgbCache = {}; readPalette(); })
+    .observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
+}
+
+renderSide();
+fitCity();
+HOME = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+var userMoved = false;
+cv.addEventListener('pointerdown', function(){ userMoved = true; });
+cv.addEventListener('wheel', function(){ userMoved = true; });
+var _resize0 = resize;
+resize = function(){
+  _resize0();
+  if (!userMoved && !state.sel){
+    fitCity();
+    HOME = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+  }
+};
+if (window.ResizeObserver) new ResizeObserver(function(){ resize(); }).observe(VP);
+
+/* expose for headless verification */
+window.__city = { CITY:CITY, fitCity:fitCity, state:state, project:project, updateView:updateView, cam:cam, pick:pick, VIEW:VIEW, digest:digest };
+})();
+</script>

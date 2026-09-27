@@ -1,0 +1,179 @@
+# The `patterns-rust` glossary, transcribed. Every entry here corresponds to a
+# page under ~/Nextcloud/nebechaunezzer/patterns-rust, and the `path` and
+# `symbol` keys come from that page's *Where it lives* and *Rust idiom*
+# sections. Nothing in this file is invented.
+#
+# A project selects it with `extends = "patterns-rust"` and overrides with
+# [[add_pattern]] (prepended) or [[pattern]] (replaces this list wholesale).
+
+flow = ["command-handler", "service", "use-case", "port", "store"]
+
+[[layer]]
+id = "application"
+title = "Application"
+sub = "CLI + TUI entry points"
+
+[[layer]]
+id = "domain"
+title = "Domain"
+sub = "use-cases, ports, pure domain"
+
+[[layer]]
+id = "infrastructure"
+title = "Infrastructure"
+sub = "stores and adapters"
+
+[[layer]]
+id = "composition-root"
+title = "Composition Root"
+sub = "the only place concretes are named"
+
+[[layer]]
+id = "test"
+title = "Test"
+sub = "fakes and specs"
+
+# ---------------------------------------------------------------- domain
+
+# port.md — "Trait: domain/ports/ — depends only on domain types."
+[[pattern]]
+id = "port"
+layer = "domain"
+path = "domain/ports/"
+symbol = { kind = "trait" }
+
+# use-case.md — "domain/use_cases/ — one function per operation."
+[[pattern]]
+id = "use-case"
+layer = "domain"
+path = "domain/use_cases/"
+symbol = { kind = "fn", name = "^(start|stop|add|create|delete|update|list|find|scan|register|import|export|move|rename|open|close|record)_" }
+
+# service.md — "domain/. Depends on use-cases and ports."
+[[pattern]]
+id = "service"
+layer = "domain"
+path = "domain/services/"
+symbol = { kind = ["fn", "struct"] }
+
+# validator.md — "domain/. Called by use-cases and services."
+[[pattern]]
+id = "validator"
+layer = "domain"
+path = "domain/"
+symbol = { kind = "fn", name = "^validate_" }
+
+# converter.md — "domain→domain mapping in domain/; domain→view-model
+# mapping in application/." Must precede the type patterns: a converter is
+# a fn, so it cannot collide with entity or value-object, but it must beat
+# the broader `validator` path rule.
+[[pattern]]
+id = "converter"
+layer = "domain"
+pure = true
+path = "domain/"
+symbol = { kind = "fn", name = "^(to_|from_)|_to_" }
+
+# projection.md — "domain/ (defined next to the port/use-case that returns it)."
+[[pattern]]
+id = "projection"
+layer = "domain"
+pure = true
+path = "domain/"
+symbol = { kind = ["struct", "enum"], name = "Projection$" }
+
+# entity.md — "domain/. Depends only on std and value types." Identity is
+# what separates it from a value object, so the `id` field is the test.
+[[pattern]]
+id = "entity"
+layer = "domain"
+pure = true
+path = "domain/"
+symbol = { kind = "struct", has_field = "id" }
+
+# value-object.md — "domain/. No I/O, no identity."
+[[pattern]]
+id = "value-object"
+layer = "domain"
+pure = true
+path = "domain/"
+symbol = { kind = ["struct", "enum"], derives = ["PartialEq"], not_has_field = "id" }
+
+# ------------------------------------------------------- infrastructure
+
+# store.md — "infra/. Depends on its port trait + the I/O library."
+# adapter.md — "infra/. Depends on its port + the external crate."
+#
+# Both are "a struct in infra/ implementing a port". The glossary separates
+# them by what they talk to, which is a soft distinction to a scanner, so
+# they share a group: matching both or neither yields the group id and an
+# `ambiguous-infra` diagnostic rather than a guess.
+[[pattern]]
+id = "store"
+layer = "infrastructure"
+group = "infra-impl"
+path = "infra/"
+symbol = { kind = "struct", implements_port = true }
+externs = ["rusqlite", "sled", "sqlx", "diesel", "redis", "toml", "serde_json"]
+
+[[pattern]]
+id = "adapter"
+layer = "infrastructure"
+group = "infra-impl"
+path = "infra/"
+symbol = { kind = "struct", implements_port = true }
+externs = ["std::fs", "std::process", "std::net", "reqwest", "arboard", "ureq"]
+
+# ------------------------------------------------------------ application
+
+# command-handler.md — "application/ — cli.rs and tui/app.rs."
+[[pattern]]
+id = "command-handler"
+layer = "application"
+path = "application/"
+symbol = { kind = "fn", name = "^(cmd_|handle_|run_)" }
+
+# view-model.md — "Built by converters; consumed by render fns." The
+# render fn is the view-model's other half and belongs to the same layer.
+[[pattern]]
+id = "renderer"
+layer = "application"
+path = "application/"
+symbol = { kind = "fn", name = "^(render_|draw_|view_)" }
+
+# view-model.md — "application/ (often tui/view.rs)."
+[[pattern]]
+id = "view-model"
+layer = "application"
+path = "application/"
+symbol = { kind = ["struct", "enum"], name = "(Row|Panel|View|Command|Args|Cli)$" }
+
+# dependency-hierarchy.md — "main.rs (CLI) and tui::run() are the
+# composition root — the only code that constructs concrete adapters,
+# binds them to the ports they satisfy, and hands them down."
+#
+# That is a role held by specific functions, not by a whole file. A
+# path-only rule here classifies everything that happens to sit in
+# main.rs, which in an unrefactored crate is most of the crate — and
+# turns a 1% coverage figure into 20%.
+[[pattern]]
+id = "composition-root"
+layer = "composition-root"
+path = "^(main\\.rs|application/tui/run\\.rs)$"
+symbol = { kind = "fn", name = "^(main|run)$" }
+
+# ------------------------------------------------------------ externs
+
+# Crates that mean "this symbol does I/O". Drives the domain-purity rules
+# in spec 04.
+[externs]
+io = ["std::fs", "std::process", "std::net", "std::env", "rusqlite", "reqwest"]
+render = ["ratatui", "crossterm", "termion"]
+time = ["std::time::SystemTime::now", "chrono::Local::now", "std::time::Instant::now"]
+
+# naming.md
+[naming]
+forbid_in_domain = ["Dto", "DTO"]
+use_case_params = "Params$"
+service_input = "Command$"
+domain_output = "Projection$"

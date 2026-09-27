@@ -1,0 +1,556 @@
+<!-- arch-views: What happens when a request arrives. All 63 endpoints as animated traces, with the real payload at each hop. -->
+<title>{{project}} Request Traffic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;1,8..60,400&display=swap">
+
+<style>
+:root {
+  --paper:#F1F4F8; --surface:#FFFFFF; --surface2:#E7ECF3; --sunk:#DFE5EE;
+  --ink:#151E29; --ink2:#485A6F; --ink3:#7A8B9F;
+  --rule:#D2DAE4; --rule2:#B9C4D2;
+  --blue:#2B5CA8; --amber:#A85B06; --rose:#A31C39; --green:#1B6448; --violet:#54479A; --teal:#136A80;
+  --l0:#2B5CA8; --l1:#54479A; --l2:#A85B06; --l3:#1B6448; --l4:#7E6E4E; --l5:#136A80; --l6:#84406F;
+  --track:#C9D3DF; --dot:#A85B06;
+  --shadow:0 1px 2px rgba(21,30,41,.06), 0 8px 24px rgba(21,30,41,.06);
+  --code:#F5F7FA;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#0E141B; --surface:#151D26; --surface2:#1C2631; --sunk:#111922;
+    --ink:#E3EAF2; --ink2:#9EAFC1; --ink3:#6B7C91;
+    --rule:#28343F; --rule2:#36454F;
+    --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6; --teal:#4FB6CE;
+    --l0:#79A4E6; --l1:#A093E6; --l2:#E0A04A; --l3:#4FC195; --l4:#C0AC7F; --l5:#4FB6CE; --l6:#D28BBC;
+    --track:#2F3B47; --dot:#E0A04A;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    --code:#101821;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#0E141B; --surface:#151D26; --surface2:#1C2631; --sunk:#111922;
+  --ink:#E3EAF2; --ink2:#9EAFC1; --ink3:#6B7C91;
+  --rule:#28343F; --rule2:#36454F;
+  --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6; --teal:#4FB6CE;
+  --l0:#79A4E6; --l1:#A093E6; --l2:#E0A04A; --l3:#4FC195; --l4:#C0AC7F; --l5:#4FB6CE; --l6:#D28BBC;
+  --track:#2F3B47; --dot:#E0A04A;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  --code:#101821;
+}
+
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink);
+  font-family:'Archivo', ui-sans-serif, system-ui, sans-serif; font-size:15px; line-height:1.55;
+  -webkit-font-smoothing:antialiased; }
+.mono { font-family:'IBM Plex Mono', ui-monospace, monospace; }
+.wrap { max-width:1560px; margin:0 auto; padding:0 26px 80px; }
+
+.mast { padding:48px 0 24px; border-bottom:2px solid var(--ink); }
+.eyebrow { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink3); margin:0 0 16px; }
+h1 { font-size:clamp(34px,5.4vw,60px); line-height:1.03; letter-spacing:-.028em; font-weight:700; margin:0; text-wrap:balance; }
+.dek { font-family:'Source Serif 4',Georgia,serif; font-size:18.5px; line-height:1.6; color:var(--ink2);
+  max-width:62ch; margin:18px 0 0; }
+
+/* transport */
+.transport { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:26px 0 12px; }
+.btn { font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:.04em;
+  border:1px solid var(--rule2); background:var(--surface); color:var(--ink2);
+  padding:6px 11px; cursor:pointer; }
+.btn:hover { border-color:var(--ink3); color:var(--ink); }
+.btn[aria-pressed="true"], .btn.on { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.btn:focus-visible, input:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+#q { font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:6px 11px;
+  border:1px solid var(--rule2); background:var(--surface); color:var(--ink); min-width:200px; }
+.sep { width:1px; height:20px; background:var(--rule2); margin:0 4px; }
+.seg { display:flex; border:1px solid var(--rule2); }
+.seg button { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.04em;
+  padding:6px 10px; background:transparent; color:var(--ink3); border:0; cursor:pointer; }
+.seg button.on { background:var(--ink); color:var(--paper); }
+.seg button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+
+/* Filling the screen is the point of the board, so the plate takes the whole
+   viewport and the surrounding page furniture gets out of the way. */
+.plate.full { position:fixed; inset:0; z-index:99; margin:0; border:0;
+  display:flex; flex-direction:column; background:var(--paper); }
+.plate.full .grid { flex:1; min-height:0; border:0; grid-template-columns:minmax(0,1fr) 330px; }
+.plate.full .board, .plate.full .insp { max-height:none; height:100%; }
+.plate.full .fullbar { display:flex; }
+.fullbar { display:none; align-items:center; gap:8px; padding:8px 12px;
+  border-bottom:1px solid var(--rule2); background:var(--surface2); }
+.fullbar .t { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink3); }
+body.locked { overflow:hidden; }
+.vb { font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:600; letter-spacing:.06em;
+  padding:2px 6px; border:1px solid currentColor; }
+.v-GET{color:var(--blue)} .v-POST{color:var(--green)} .v-PATCH{color:var(--amber)}
+.v-DELETE{color:var(--rose)} .v-PUT{color:var(--violet)}
+.count { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink3); margin-left:auto; }
+
+.grid { display:grid; grid-template-columns:minmax(0,1fr) 400px; border:1px solid var(--rule2);
+  background:var(--surface); box-shadow:var(--shadow); }
+@media (max-width:1120px){ .grid { grid-template-columns:minmax(0,1fr); } }
+.board { overflow:auto; max-height:min(74vh,860px); }
+svg.board { display:block; }
+svg.board text { font-family:'IBM Plex Mono',monospace; }
+.lanehead { font-size:10px; fill:var(--ink); letter-spacing:.09em; text-transform:uppercase; font-weight:600; }
+.lanesub { font-size:8.5px; fill:var(--ink3); letter-spacing:.04em; }
+.rowbg { fill:transparent; }
+.rowbg.alt { fill:var(--sunk); }
+.rowbg.sel { fill:color-mix(in srgb, var(--amber) 12%, transparent); }
+.rline { stroke:var(--rule); stroke-width:1; }
+.lline { stroke:var(--rule); stroke-width:1; }
+.route { font-size:10.5px; fill:var(--ink); }
+.rcls { font-size:8.5px; fill:var(--ink3); }
+.track { stroke:var(--track); stroke-width:1.5; fill:none; }
+.st { stroke-width:1.5; }
+.stn { font-size:8px; fill:var(--paper); font-weight:600; }
+.dot { stroke:var(--surface); stroke-width:1.2; }
+.rowg { cursor:pointer; }
+.rowg:hover .rowbg { fill:color-mix(in srgb, var(--ink) 6%, transparent); }
+svg.board.solo .rowg { opacity:.2; }
+svg.board.solo .rowg.sel { opacity:1; }
+.l0{fill:var(--l0)} .l1{fill:var(--l1)} .l2{fill:var(--l2)} .l3{fill:var(--l3)}
+.l4{fill:var(--l4)} .l5{fill:var(--l5)} .l6{fill:var(--l6)}
+.s0{stroke:var(--l0)} .s1{stroke:var(--l1)} .s2{stroke:var(--l2)} .s3{stroke:var(--l3)}
+.s4{stroke:var(--l4)} .s5{stroke:var(--l5)} .s6{stroke:var(--l6)}
+
+/* inspector */
+.insp { border-left:1px solid var(--rule2); padding:18px 20px; overflow:auto; max-height:min(74vh,860px); }
+@media (max-width:1120px){ .insp { border-left:0; border-top:1px solid var(--rule2); max-height:640px; } }
+.insp .empty { font-family:'Source Serif 4',Georgia,serif; font-style:italic; color:var(--ink3); }
+.ihead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+.iroute { font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; word-break:break-all; }
+.isub { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink3); word-break:break-all; margin-bottom:14px; }
+.ilab { font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--ink3); margin:18px 0 7px; padding-bottom:4px; border-bottom:1px solid var(--rule); }
+pre { margin:0; background:var(--code); border:1px solid var(--rule); padding:11px 13px;
+  overflow-x:auto; font-family:'IBM Plex Mono',monospace; font-size:10.5px; line-height:1.55;
+  color:var(--ink2); white-space:pre; }
+pre .k { color:var(--violet); } pre .d { color:var(--amber); } pre .s { color:var(--green); }
+.plist { list-style:none; margin:0; padding:0; }
+.plist li { font-family:'IBM Plex Mono',monospace; font-size:11px; padding:3px 0; color:var(--ink2);
+  display:flex; gap:7px; align-items:baseline; word-break:break-all; }
+.plist li b { color:var(--ink); font-weight:500; }
+.plist li i { font-style:normal; color:var(--amber); font-size:9px; }
+.tree { list-style:none; margin:0; padding:0; }
+.tree li { font-family:'IBM Plex Mono',monospace; font-size:10.5px; padding:4px 0 4px 0;
+  border-bottom:1px dotted var(--rule); word-break:break-all; }
+.tree li .kind { font-size:8.5px; letter-spacing:.06em; text-transform:uppercase; padding:1px 5px;
+  border:1px solid currentColor; margin-right:6px; }
+.tree li .cls { color:var(--ink); font-weight:500; }
+.tree li .sig { display:block; color:var(--ink3); margin-top:2px; }
+.k-service{color:var(--l1)} .k-aggregator{color:var(--l2)} .k-transaction-script{color:var(--l3)}
+.k-port{color:var(--l4)} .k-converter{color:var(--l4)} .k-other{color:var(--l4)}
+.k-repository{color:var(--l5)} .k-hydrator{color:var(--l5)} .k-remote-caller{color:var(--l5)}
+.k-responder{color:var(--l6)}
+table.fields { border-collapse:collapse; width:100%; font-family:'IBM Plex Mono',monospace; font-size:10.5px; }
+table.fields td { padding:3px 8px 3px 0; border-bottom:1px solid var(--rule); color:var(--ink2); vertical-align:top; }
+table.fields td.d { color:var(--amber); white-space:nowrap; }
+table.fields td.n { color:var(--ink); }
+
+.legend { display:flex; flex-wrap:wrap; gap:12px 18px; padding:11px 16px; border-top:1px solid var(--rule);
+  background:var(--surface2); }
+.lg { display:flex; align-items:center; gap:6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink2); }
+.lg i { width:9px; height:9px; border-radius:50%; display:block; }
+
+section { margin-top:52px; }
+.shead { display:flex; align-items:baseline; gap:14px; border-bottom:1px solid var(--rule2);
+  padding-bottom:9px; margin-bottom:20px; flex-wrap:wrap; }
+.shead h2 { font-size:22px; font-weight:600; letter-spacing:-.015em; margin:0; }
+.shead .num { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink3); letter-spacing:.1em; }
+.note { font-family:'Source Serif 4',Georgia,serif; font-size:16.5px; line-height:1.65; color:var(--ink2); max-width:68ch; }
+.note strong { color:var(--ink); font-weight:400;
+  box-shadow:inset 0 -0.5em 0 color-mix(in srgb, var(--amber) 18%, transparent); }
+.note + .note { margin-top:13px; }
+.cards { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); margin-top:20px; }
+.card { border:1px solid var(--rule2); border-left:4px solid var(--ink3); background:var(--surface);
+  padding:14px 16px; box-shadow:var(--shadow); }
+.card.warn { border-left-color:var(--amber); }
+.card.good { border-left-color:var(--green); }
+.card h3 { margin:0 0 6px; font-size:14.5px; font-weight:600; letter-spacing:-.01em; line-height:1.3; }
+.card p { margin:0; font-size:13.5px; color:var(--ink2); line-height:1.55; }
+.card ul { margin:8px 0 0; padding-left:16px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink3); }
+.card li { padding:1.5px 0; word-break:break-all; }
+footer { margin-top:64px; padding-top:20px; border-top:2px solid var(--ink); color:var(--ink3); }
+@media (prefers-reduced-motion:reduce) { .dot { display:none; } }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">{{endpoints}} endpoints · every hop parsed from source</p>
+  <h1>{{project}} Request Traffic</h1>
+  <p class="dek">One row per HTTP endpoint, one dot per request in flight. Each dot walks the path its request actually takes — the hops were found by following <span class="mono">this.x.y()</span> calls through real method bodies, not guessed from the folder layout. Click any row to open what the request is carrying at each stop.</p>
+</header>
+
+<div class="transport" id="transport">
+  <button class="btn on" id="play">⏸ pause</button>
+  <button class="btn" id="speed" data-s="1">1×</button>
+  <span class="sep"></span>
+  <span id="verbs"></span>
+  <span class="sep"></span>
+  <input id="q" type="search" placeholder="filter routes…" aria-label="Filter routes">
+  <span class="sep"></span>
+  <div class="seg" role="group" aria-label="Row density">
+    <button id="dCompact" title="Fit more rows on screen">compact</button>
+    <button id="dComfortable" class="on">comfortable</button>
+    <button id="dRoomy" title="Larger rows, easier to read">roomy</button>
+  </div>
+  <button class="btn" id="expand" title="Fill the screen (Esc to leave)">⤢ full screen</button>
+  <button class="btn" id="clear">reset</button>
+  <span class="count" id="count"></span>
+</div>
+
+<div class="plate" id="plate">
+  <div class="fullbar" id="fullbar">
+    <span class="t" id="fullTitle"></span>
+    <span style="margin-left:auto"></span>
+    <button class="btn" id="fullPlay">⏸ pause</button>
+    <div class="seg" role="group" aria-label="Row density">
+      <button id="fCompact">compact</button>
+      <button id="fComfortable" class="on">comfortable</button>
+      <button id="fRoomy">roomy</button>
+    </div>
+    <button class="btn" id="fullExit">✕ exit full screen</button>
+  </div>
+  <div class="grid">
+    <div class="board" id="board"></div>
+    <aside class="insp" id="insp"></aside>
+  </div>
+</div>
+<div class="legend" id="legend" style="border:1px solid var(--rule2);border-top:0;background:var(--surface2)"></div>
+
+<section>
+  <div class="shead"><span class="num">01</span><h2>How to read a row</h2></div>
+  <p class="note">Every row starts at the entry point and ends wherever that request actually stops. The lanes are ordered the way the architecture is supposed to flow, so <strong>a row's silhouette is its conformance</strong>.</p>
+  <p class="note" data-narr="flow"></p>
+  <p class="note" data-narr="endpoints"></p>
+  <p class="note" data-narr="crossDomain"></p>
+  <div class="cards" id="obs"></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">02</span><h2>What the tracer can and cannot see</h2></div>
+  <p class="note">Hops come from resolving <span class="mono">this.&lt;prop&gt;.&lt;method&gt;()</span> inside each method body against that class's constructor injections, recursively to a depth of five. That is a real call graph, not an import graph — <strong>a class the action injects but never calls does not appear</strong>.</p>
+  <p class="note">Three limits worth stating. Calls made through a local variable rather than <span class="mono">this</span>, or dispatched dynamically, are invisible — <strong>one endpoint (<span class="mono">GET /users/profile</span>) resolves to no calls at all</strong>, correctly, because it just returns <span class="mono">req.user</span>. Branching is flattened: if a method calls two collaborators, both appear, though a given request might only take one. And recursion past five levels is cut off, which affects nothing here — the deepest real trace is five.</p>
+</section>
+
+<footer>
+  <p class="note" style="font-size:14.5px">Parsed from <span class="mono">{{projectId}}</span> · <span id="gen"></span> · 63 endpoints, 257 traced hops, 159 distinct classes.</p>
+</footer>
+
+</div>
+
+<script id="flow" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById('flow').textContent);
+var EP = D.endpoints;
+document.getElementById('gen').textContent = new Date(D.generatedAt).toISOString().slice(0,10);
+
+var LANES = [
+  { i:0, name:'Entry',      sub:'action' },
+  { i:1, name:'Service',    sub:'orchestration' },
+  { i:2, name:'Aggregator', sub:'cross-domain' },
+  { i:3, name:'Tx Script',  sub:'use-case' },
+  { i:4, name:'Port',       sub:'inverted / convert' },
+  { i:5, name:'Persistence',sub:'repository' },
+  { i:6, name:'Response',   sub:'responder' }
+];
+var DENSITY = {
+  compact:     { rowH:20, laneW:112, gut:236, route:9.5,  cls:0,   dot:2.8 },
+  comfortable: { rowH:30, laneW:132, gut:262, route:10.5, cls:8.5, dot:3.6 },
+  roomy:       { rowH:44, laneW:158, gut:300, route:12.5, cls:10,  dot:4.6 }
+};
+var V = { gut:262, laneW:132, rowH:30, headH:46, pad:10, route:10.5, cls:8.5, dot:3.6 };
+function applyDensity(name){
+  var d = DENSITY[name] || DENSITY.comfortable;
+  V.rowH = d.rowH; V.laneW = d.laneW; V.gut = d.gut;
+  V.route = d.route; V.cls = d.cls; V.dot = d.dot;
+}
+
+// stations per endpoint: lane -> nodes
+EP.forEach(function(e){
+  var by = {};
+  by[0] = [{ cls:e.cls, kind:'action', method:e.handler, sig:null, file:e.file, module:e.module }];
+  e.flat.forEach(function(n){ (by[n.tier] = by[n.tier] || []).push(n); });
+  e.stations = Object.keys(by).map(Number).sort(function(a,b){return a-b;})
+    .map(function(l){ return { lane:l, nodes:by[l] }; });
+});
+
+var state = { play:true, speed:1, q:'', verbs:{}, sel:null };
+applyDensity('comfortable');
+['GET','POST','PATCH','PUT','DELETE'].forEach(function(v){ state.verbs[v] = true; });
+
+document.getElementById('verbs').innerHTML = ['GET','POST','PATCH','PUT','DELETE'].map(function(v){
+  return '<button class="btn on vfilter" data-v="'+v+'" aria-pressed="true"><span class="vb v-'+v+'">'+v+'</span></button>';
+}).join(' ');
+
+function visible(){
+  var q = state.q.trim().toLowerCase();
+  return EP.filter(function(e){
+    if (!state.verbs[e.verb]) return false;
+    if (!q) return true;
+    return (e.verb+' '+e.route+' '+e.cls+' '+e.module).toLowerCase().indexOf(q) >= 0;
+  });
+}
+
+var rows = [], dots = [], svg;
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function laneX(l){ return V.gut + l*V.laneW + V.laneW/2; }
+
+function render(){
+  rows = visible();
+  var h = V.headH + rows.length*V.rowH + V.pad;
+  var w = V.gut + LANES.length*V.laneW;
+  var s = [];
+  s.push('<svg class="board" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="Endpoint request traffic board">');
+
+  LANES.forEach(function(L){
+    var x = V.gut + L.i*V.laneW;
+    s.push('<line class="lline" x1="'+x+'" y1="0" x2="'+x+'" y2="'+h+'"/>');
+    s.push('<text class="lanehead" x="'+(x+10)+'" y="20">'+esc(L.name)+'</text>');
+    s.push('<text class="lanesub" x="'+(x+10)+'" y="33">'+esc(L.sub)+'</text>');
+  });
+  s.push('<line class="lline" x1="0" y1="'+V.headH+'" x2="'+w+'" y2="'+V.headH+'" stroke-width="1.5"/>');
+
+  rows.forEach(function(e, i){
+    var y = V.headH + i*V.rowH, cy = y + V.rowH/2;
+    var sel = state.sel === e.id;
+    s.push('<g class="rowg'+(sel?' sel':'')+'" data-id="'+esc(e.id)+'" tabindex="0" role="button" aria-label="'+esc(e.verb+' '+e.route)+'">');
+    s.push('<rect class="rowbg'+(i%2?' alt':'')+(sel?' sel':'')+'" x="0" y="'+y+'" width="'+w+'" height="'+V.rowH+'"/>');
+    var ty = V.cls ? cy - 1 : cy + V.route*0.36;
+    // the gutter is fixed, so clip the route rather than letting it run into the lanes
+    var avail = V.gut - 22 - (e.verb.length + 1) * V.route * 0.62;
+    var maxChars = Math.max(6, Math.floor(avail / (V.route * 0.60)));
+    var routeTxt = e.route.length > maxChars ? '…' + e.route.slice(-(maxChars - 1)) : e.route;
+    s.push('<text class="route" style="font-size:'+V.route+'px" x="10" y="'+ty+'"><tspan class="v-'+e.verb+'" style="font-weight:600">'+e.verb+'</tspan> '+esc(routeTxt)+'<title>'+esc(e.verb+' '+e.route)+'</title></text>');
+    if (V.cls) {
+      var clsMax = Math.max(8, Math.floor((V.gut - 22) / (V.cls * 0.60)));
+      var clsTxt = e.cls.length > clsMax ? e.cls.slice(0, clsMax - 1) + '…' : e.cls;
+      s.push('<text class="rcls" style="font-size:'+V.cls+'px" x="10" y="'+(cy+10)+'">'+esc(clsTxt)+'</text>');
+    }
+
+    var xs = e.stations.map(function(st){ return laneX(st.lane); });
+    if (xs.length > 1) s.push('<line class="track" x1="'+xs[0]+'" y1="'+cy+'" x2="'+xs[xs.length-1]+'" y2="'+cy+'"/>');
+    e.stations.forEach(function(st, k){
+      var x = xs[k], n = st.nodes.length;
+      var r = (n > 1 ? 8 : 6) * (V.rowH/30 < 0.8 ? 0.75 : (V.rowH/30 > 1.2 ? 1.15 : 1));
+      s.push('<circle class="st l'+st.lane+' s'+st.lane+'" cx="'+x+'" cy="'+cy+'" r="'+r+'" fill-opacity="'+(n>1?'1':'.85')+'"/>');
+      if (n > 1) s.push('<text class="stn" x="'+x+'" y="'+(cy+3)+'" text-anchor="middle">'+n+'</text>');
+    });
+    s.push('<circle class="dot" r="'+V.dot+'" fill="var(--dot)" cx="'+xs[0]+'" cy="'+cy+'" data-row="'+i+'"/>');
+    s.push('</g>');
+  });
+  s.push('</svg>');
+  document.getElementById('board').innerHTML = s.join('');
+  svg = document.querySelector('svg.board');
+  svg.classList.toggle('solo', !!state.sel);
+  dots = [].slice.call(svg.querySelectorAll('.dot'));
+
+  svg.querySelectorAll('.rowg').forEach(function(g){
+    var id = g.getAttribute('data-id');
+    g.addEventListener('click', function(){ select(state.sel===id?null:id); });
+    g.addEventListener('keydown', function(ev){ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); g.click(); } });
+  });
+  document.getElementById('count').textContent = rows.length + ' of ' + EP.length + ' endpoints';
+  var ft = document.getElementById('fullTitle');
+  if (ft) ft.textContent = rows.length + ' of ' + EP.length + ' endpoints · ' + densityName;
+}
+
+function select(id){
+  state.sel = id;
+  render();
+  inspect(id ? EP.filter(function(e){ return e.id===id; })[0] : null);
+}
+
+/* ---------- animation ---------- */
+var t0 = performance.now(), acc = 0, last = t0;
+function ease(t){
+  var u = (t - 0.18) / 0.60;
+  u = u < 0 ? 0 : (u > 1 ? 1 : u);
+  return u*u*(3-2*u);
+}
+function frame(now){
+  var dt = now - last; last = now;
+  if (state.play) acc += dt * state.speed;
+  for (var i=0;i<dots.length;i++){
+    var d = dots[i], e = rows[i];
+    if (!e) continue;
+    var xs = e.stations.map(function(st){ return laneX(st.lane); });
+    if (xs.length === 1) { d.setAttribute('cx', xs[0]); continue; }
+    var dur = 1400 + xs.length*900;
+    var phase = ((acc + i*370) % dur) / dur;
+    var seg = phase * (xs.length - 1);
+    var k = Math.floor(seg); if (k > xs.length-2) k = xs.length-2;
+    var t = ease(seg - k);
+    d.setAttribute('cx', xs[k] + (xs[k+1]-xs[k]) * t);
+    d.setAttribute('opacity', phase > 0.985 ? 0 : 1);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- inspector ---------- */
+function hl(code){
+  return esc(code)
+    .replace(/(@[A-Za-z]+)/g, '<span class="d">$1</span>')
+    .replace(/\b(export|class|async|await|return|const|let|new|extends|implements|private|readonly|public|this|if|else)\b/g, '<span class="k">$1</span>')
+    .replace(/('[^']*')/g, '<span class="s">$1</span>');
+}
+function inspect(e){
+  var el = document.getElementById('insp');
+  if (!e) {
+    el.innerHTML = '<p class="empty">Pick a row. You will get the request DTO with its validators, the handler body, every hop with its real method signature, and the shape that comes back — all lifted from the source.</p>';
+    return;
+  }
+  var h = [];
+  h.push('<div class="ihead"><span class="vb v-'+e.verb+'">'+e.verb+'</span><span class="iroute">'+esc(e.route)+'</span></div>');
+  h.push('<p class="isub">'+esc(e.file)+' · '+esc(e.cls)+'.'+esc(e.handler)+'()</p>');
+
+  if (e.params && e.params.length) {
+    h.push('<p class="ilab">Accepts</p><ul class="plist">'+e.params.map(function(p){
+      return '<li><i>@'+esc(p.deco||'—')+(p.decoArg?"('"+esc(p.decoArg)+"')":'')+'</i><b>'+esc(p.name)+'</b>: '+esc(p.type)+'</li>';
+    }).join('')+'</ul>');
+  }
+  if (e.dto && e.dto.src) {
+    h.push('<p class="ilab">Payload — '+esc(e.dto.type)+'</p><pre>'+hl(e.dto.src)+'</pre>');
+  } else if (e.dto) {
+    h.push('<p class="ilab">Payload</p><p class="empty" style="font-size:13px">'+esc(e.dto.type)+' — declared outside src, not resolved.</p>');
+  }
+
+  h.push('<p class="ilab">Handler</p><pre>'+hl(e.body || '(empty)')+'</pre>');
+
+  h.push('<p class="ilab">Trace — '+e.flat.length+' hop'+(e.flat.length===1?'':'s')+'</p>');
+  h.push(e.flat.length ? '<ul class="tree">'+e.flat.map(function(n){
+    return '<li style="padding-left:'+((n.depth-1)*13)+'px">'+
+      '<span class="kind k-'+esc(n.kind)+'">'+esc(n.kind)+'</span>'+
+      '<span class="cls">'+esc(n.cls)+'.'+esc(n.method||'?')+'</span>'+
+      (n.inferred ? ' <em style="color:var(--ink3);font-size:9px">injected, no call resolved</em>' : '') +
+      (n.sig ? '<span class="sig">'+esc(n.sig)+'</span>' : '') + '</li>';
+  }).join('')+'</ul>' : '<p class="empty" style="font-size:13px">No calls — this handler returns directly.</p>');
+
+  h.push('<p class="ilab">Returns — '+esc(e.ret)+'</p>');
+  if (e.returns && e.returns.fields && e.returns.fields.length) {
+    h.push('<table class="fields"><tbody>'+e.returns.fields.map(function(f){
+      return '<tr><td class="d">@'+esc(f.deco)+'</td><td class="n">'+esc(f.name)+'</td><td>'+esc(f.type)+'</td></tr>';
+    }).join('')+'</tbody></table>');
+  } else if (e.returns && e.returns.src) {
+    h.push('<pre>'+hl(e.returns.src)+'</pre>');
+  } else {
+    h.push('<p class="empty" style="font-size:13px">'+esc(e.ret)+'</p>');
+  }
+  el.innerHTML = h.join('');
+  el.scrollTop = 0;
+}
+
+/* ---------- legend + observations ---------- */
+document.getElementById('legend').innerHTML = LANES.map(function(L){
+  return '<span class="lg"><i style="background:var(--l'+L.i+')"></i>'+esc(L.name)+'</span>';
+}).join('') + '<span class="lg"><i style="background:var(--dot)"></i>request in flight</span>' +
+  '<span class="lg" style="color:var(--ink3)">numbered stop = more than one class at that lane</span>';
+
+var noService = EP.filter(function(e){ return !e.stations.some(function(s){return s.lane===1;}) && e.stations.some(function(s){return s.lane>1;}); });
+var directRepo = EP.filter(function(e){ return e.flat.some(function(n){ return n.kind==='repository' && n.depth===1; }); });
+var crossers = EP.filter(function(e){ return e.stations.some(function(s){ return s.lane===2; }); });
+var obs = [
+  { tone:'warn', h:'Requests that never touch a Service', p:noService.length+' of 63 endpoints go from the action straight past the Service lane. Their rows have a visible gap in column two.',
+    items: noService.slice(0,10).map(function(e){ return e.verb+' '+e.route; }) },
+  { tone:'warn', h:'Actions holding a Repository themselves', p:directRepo.length+' endpoints call a repository as their very first hop — no service, no transaction script in between.',
+    items: directRepo.map(function(e){ return e.verb+' '+e.route; }) },
+  { tone:'good', h:'Requests that cross a bounded context', p:crossers.length+' endpoints reach an Aggregator, and every one of them does it through that Aggregator rather than touching the other domain directly.',
+    items: crossers.slice(0,10).map(function(e){ return e.verb+' '+e.route; }) }
+];
+document.getElementById('obs').innerHTML = obs.map(function(o){
+  return '<div class="card '+o.tone+'"><h3>'+esc(o.h)+'</h3><p>'+esc(o.p)+'</p>'+
+    (o.items.length?'<ul>'+o.items.map(function(i){return '<li>'+esc(i)+'</li>';}).join('')+'</ul>':'')+'</div>';
+}).join('');
+
+/* ---------- controls ---------- */
+var playBtn = document.getElementById('play');
+playBtn.addEventListener('click', function(){
+  state.play = !state.play;
+  playBtn.textContent = state.play ? '⏸ pause' : '▶ play';
+  playBtn.classList.toggle('on', state.play);
+});
+var SPEEDS = [1, 2, 0.35];
+var si = 0;
+var spBtn = document.getElementById('speed');
+spBtn.addEventListener('click', function(){
+  si = (si+1) % SPEEDS.length; state.speed = SPEEDS[si];
+  spBtn.textContent = SPEEDS[si] + '×';
+});
+document.getElementById('verbs').addEventListener('click', function(ev){
+  var b = ev.target.closest('.vfilter'); if (!b) return;
+  var v = b.getAttribute('data-v');
+  state.verbs[v] = !state.verbs[v];
+  b.classList.toggle('on', state.verbs[v]);
+  b.setAttribute('aria-pressed', String(state.verbs[v]));
+  render();
+});
+document.getElementById('q').addEventListener('input', function(e){ state.q = e.target.value; render(); });
+document.getElementById('clear').addEventListener('click', function(){
+  state.q = ''; state.sel = null;
+  document.getElementById('q').value = '';
+  ['GET','POST','PATCH','PUT','DELETE'].forEach(function(v){ state.verbs[v] = true; });
+  document.querySelectorAll('.vfilter').forEach(function(b){ b.classList.add('on'); b.setAttribute('aria-pressed','true'); });
+  render(); inspect(null);
+});
+
+/* ---------- density ---------- */
+var densityName = 'comfortable';
+function setDensity(name){
+  if (!DENSITY[name]) return;
+  densityName = name;
+  applyDensity(name);
+  ['Compact','Comfortable','Roomy'].forEach(function(k){
+    var lower = k.toLowerCase();
+    ['d'+k, 'f'+k].forEach(function(id){
+      var b = document.getElementById(id);
+      if (b) b.classList.toggle('on', lower === name);
+    });
+  });
+  render();
+}
+['Compact','Comfortable','Roomy'].forEach(function(k){
+  ['d'+k, 'f'+k].forEach(function(id){
+    var b = document.getElementById(id);
+    if (b) b.addEventListener('click', function(){ setDensity(k.toLowerCase()); });
+  });
+});
+
+/* ---------- full screen ---------- */
+var plate = document.getElementById('plate');
+function isFull(){ return plate.classList.contains('full'); }
+function setFull(on){
+  plate.classList.toggle('full', on);
+  document.body.classList.toggle('locked', on);
+  // native full screen where the browser allows it; the CSS fallback already
+  // covers the viewport, so this is best-effort and never load-bearing
+  try {
+    if (on && plate.requestFullscreen) plate.requestFullscreen().catch(function(){});
+    else if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function(){});
+  } catch (e) {}
+  render();
+}
+document.getElementById('expand').addEventListener('click', function(){ setFull(!isFull()); });
+document.getElementById('fullExit').addEventListener('click', function(){ setFull(false); });
+document.addEventListener('keydown', function(ev){
+  if (ev.key === 'Escape' && isFull()) { ev.preventDefault(); setFull(false); }
+});
+document.addEventListener('fullscreenchange', function(){
+  if (!document.fullscreenElement && isFull()) setFull(false);
+});
+document.getElementById('fullPlay').addEventListener('click', function(){
+  document.getElementById('play').click();
+  this.textContent = state.play ? '⏸ pause' : '▶ play';
+});
+window.addEventListener('resize', function(){ if (isFull()) render(); });
+
+inspect(null);
+render();
+})();
+</script>
+

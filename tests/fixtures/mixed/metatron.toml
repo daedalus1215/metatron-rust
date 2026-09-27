@@ -1,0 +1,25 @@
+# A project mid-refactor: the patterns-rust layout does not exist yet, so
+# the profile's path-anchored rules match nothing. These rules classify by
+# symbol shape alone, which is the only way to say anything about a crate
+# whose directories carry no meaning.
+extends = "patterns-rust"
+
+[[add_pattern]]
+id = "key-handler"
+layer = "application"
+symbol = { kind = "fn", name = "^handle_" }
+
+[[add_pattern]]
+id = "mode"
+layer = "domain"
+symbol = { kind = "enum", name = "^(Mode|Outcome)$" }
+
+[[add_pattern]]
+id = "loader"
+layer = "infrastructure"
+symbol = { kind = "fn", name = "^load_" }
+
+[[add_pattern]]
+id = "rule"
+layer = "domain"
+symbol = { kind = "fn", name = "^is_" }

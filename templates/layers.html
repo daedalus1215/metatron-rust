@@ -1,0 +1,795 @@
+<!-- arch-views: Does the layering hold? Every file on the plane of its tier — a link that skips a plane is a violation. -->
+<title>{{project}} Layer Stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400&display=swap">
+
+<style>
+/* A deliberately single-world dark scene: the reference is an immersive teal
+   atmosphere, so every colour is painted explicitly rather than theme-swapped. */
+:root {
+  --deep:#3C525A; --mid:#5E787F; --hi:#8CA7AC; --glow:#B3C7CA;
+  --rail:#2B3A42; --panel:#33454D; --panel2:#3D5159; --edge:#526B73;
+  --text:#E7F0F1; --text2:#B3C6CA; --text3:#88A0A6;
+  --ok:#E4EFF1; --warn:#E8A13C; --crit:#E4574F; --cross:#9CD1D8;
+  --shadow:0 2px 4px rgba(0,0,0,.28), 0 18px 44px rgba(0,0,0,.34);
+}
+* { box-sizing:border-box; }
+html, body { background:#33454D; }
+body { margin:0; color:var(--text);
+  font-family:'Archivo',ui-sans-serif,system-ui,sans-serif; font-size:15px; line-height:1.55;
+  -webkit-font-smoothing:antialiased; }
+.mono { font-family:'IBM Plex Mono',ui-monospace,monospace; }
+.wrap { max-width:1680px; margin:0 auto; padding:0 22px 72px; }
+
+.mast { padding:40px 0 18px; border-bottom:1px solid var(--edge); }
+.eyebrow { font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--text3); margin:0 0 13px; }
+h1 { font-size:clamp(30px,4.6vw,54px); line-height:1.03; letter-spacing:-.03em; font-weight:700; margin:0;
+  text-wrap:balance; }
+.dek { font-family:'Source Serif 4',Georgia,serif; font-size:17.5px; line-height:1.6; color:var(--text2);
+  max-width:64ch; margin:15px 0 0; }
+
+/* --- app chrome --- */
+.app { margin-top:22px; border:1px solid var(--edge); background:var(--panel); box-shadow:var(--shadow); }
+.topbar { display:flex; align-items:center; gap:14px; padding:9px 14px; border-bottom:1px solid var(--edge);
+  background:var(--rail); flex-wrap:wrap; }
+.topbar .brand { font-size:14px; font-weight:600; letter-spacing:-.01em; }
+.seg { display:flex; border:1px solid var(--edge); }
+.seg button { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.05em; padding:5px 13px;
+  background:transparent; color:var(--text3); border:0; cursor:pointer; }
+.seg button.on { background:var(--text); color:var(--rail); }
+.seg button:focus-visible, .tb:focus-visible, input:focus-visible { outline:2px solid var(--cross); outline-offset:2px; }
+.tb { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.04em; padding:5px 11px;
+  background:transparent; border:1px solid var(--edge); color:var(--text3); cursor:pointer; }
+.tb:hover { color:var(--text); border-color:var(--hi); }
+.tb.on { background:var(--warn); border-color:var(--warn); color:#2A1D07; }
+.tb.crit.on { background:var(--crit); border-color:var(--crit); color:#2A0B09; }
+.grow { margin-left:auto; }
+#q { font-family:'IBM Plex Mono',monospace; font-size:11px; padding:5px 10px; background:var(--panel2);
+  border:1px solid var(--edge); color:var(--text); min-width:170px; }
+
+.body { display:grid; grid-template-columns:186px minmax(0,1fr) 320px; }
+@media (max-width:1200px){ .body { grid-template-columns:150px minmax(0,1fr); } .insp { display:none; } }
+@media (max-width:820px){ .body { grid-template-columns:minmax(0,1fr); } .rail { display:none; } }
+
+.rail { border-right:1px solid var(--edge); padding:12px 0; background:var(--rail); }
+.rail h4 { font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--text3); margin:0 0 6px; padding:0 13px; }
+.lay { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:transparent;
+  border:0; border-left:3px solid transparent; padding:6px 12px; cursor:pointer; color:var(--text2);
+  font-family:'IBM Plex Mono',monospace; font-size:11px; }
+.lay:hover { background:var(--panel2); color:var(--text); }
+.lay.sel { background:var(--panel2); color:var(--text); border-left-color:var(--cross); }
+.lay .n { margin-left:auto; opacity:.6; font-variant-numeric:tabular-nums; }
+.lay .sq { width:8px; height:8px; flex:0 0 auto; opacity:.85; }
+.lay.extra { opacity:.55; }
+
+.stage { position:relative; background:#4E676F; min-height:540px; height:min(74vh,820px); overflow:hidden; }
+canvas { display:block; width:100%; height:100%; cursor:grab; touch-action:none; }
+canvas.drag { cursor:grabbing; }
+.hud { position:absolute; left:12px; bottom:11px; font-family:'IBM Plex Mono',monospace; font-size:10px;
+  color:var(--text3); pointer-events:none; letter-spacing:.03em; text-shadow:0 1px 3px rgba(0,0,0,.5); }
+.crumb { position:absolute; left:14px; top:12px; display:flex; gap:8px; align-items:center; }
+.crumb button { font-family:'IBM Plex Mono',monospace; font-size:11px; padding:5px 11px; cursor:pointer;
+  background:rgba(43,58,66,.82); border:1px solid var(--edge); color:var(--text); }
+.card { position:absolute; right:14px; top:12px; width:246px; background:rgba(43,58,66,.9);
+  border:1px solid var(--edge); padding:12px 13px; box-shadow:var(--shadow); }
+.card .lab { font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--text3); margin:0 0 7px; }
+.card .big { display:flex; align-items:baseline; gap:8px; margin-bottom:10px; }
+.card .big b { font-family:'IBM Plex Mono',monospace; font-size:29px; font-weight:600; letter-spacing:-.02em; }
+.card .big span { font-size:12px; color:var(--text2); }
+.sevbar { display:flex; height:7px; margin-bottom:5px; }
+.sevbar i { display:block; }
+.sevleg { display:flex; gap:11px; font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--text3); }
+.sevleg b { font-weight:500; }
+.card ul { list-style:none; margin:9px 0 0; padding:9px 0 0; border-top:1px solid var(--edge); }
+.card li { font-size:11.5px; color:var(--text2); padding:3px 0; display:flex; gap:7px; }
+.card li b { font-family:'IBM Plex Mono',monospace; color:var(--text); font-weight:500; margin-left:auto; }
+
+.insp { border-left:1px solid var(--edge); background:var(--panel); overflow:auto;
+  max-height:min(74vh,820px); padding:14px 15px; }
+.insp .empty { font-family:'Source Serif 4',Georgia,serif; font-style:italic; color:var(--text3); font-size:14px; }
+.insp h3 { margin:0 0 3px; font-size:15px; font-weight:600; letter-spacing:-.01em; word-break:break-all; }
+.insp .sub { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); word-break:break-all; margin:0 0 11px; }
+.ilab { font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--text3); margin:14px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--edge); }
+.kv { list-style:none; margin:0; padding:0; }
+.kv li { display:flex; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text2);
+  padding:2.5px 0; }
+.kv li b { color:var(--text); font-weight:500; margin-left:auto; text-align:right; word-break:break-all; }
+.lks { list-style:none; margin:0; padding:0; }
+.lks li { font-family:'IBM Plex Mono',monospace; font-size:10px; padding:3.5px 0; color:var(--text2);
+  border-bottom:1px dotted var(--edge); word-break:break-all; }
+.lks li .t { color:var(--text3); }
+.lks li.skip { color:var(--warn); }
+.lks li.crit { color:var(--crit); }
+.warnbox { border-left:3px solid var(--warn); background:var(--panel2); padding:7px 10px; font-size:12px;
+  color:var(--text2); margin-bottom:7px; }
+.warnbox.crit { border-left-color:var(--crit); }
+pre { margin:0; background:var(--rail); border:1px solid var(--edge); padding:10px 12px; overflow:auto;
+  font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:var(--text2);
+  max-height:210px; white-space:pre-wrap; word-break:break-word; }
+
+section { margin-top:46px; }
+.shead { display:flex; align-items:baseline; gap:13px; border-bottom:1px solid var(--edge);
+  padding-bottom:8px; margin-bottom:17px; flex-wrap:wrap; }
+.shead h2 { font-size:20px; font-weight:600; letter-spacing:-.015em; margin:0; }
+.shead .num { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text3); letter-spacing:.1em; }
+.note { font-family:'Source Serif 4',Georgia,serif; font-size:16px; line-height:1.65; color:var(--text2); max-width:68ch; }
+.note + .note { margin-top:11px; }
+.note strong { color:var(--text); font-weight:400; box-shadow:inset 0 -0.5em 0 rgba(232,161,60,.22); }
+.keys { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:8px; margin-top:15px; }
+.key { border:1px solid var(--edge); background:var(--panel2); padding:9px 12px; }
+.key b { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text); display:block; margin-bottom:2px; }
+.key span { font-size:12px; color:var(--text2); }
+footer { margin-top:56px; padding-top:18px; border-top:1px solid var(--edge); color:var(--text3); }
+@media (prefers-reduced-motion:reduce){ * { transition:none !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Layered reference model · {{files}} files · every one placed on the plane of its tier</p>
+  <h1>{{project}} Layer Stack</h1>
+  <p class="dek">Every file in the backend, placed on the plane of the architectural layer it belongs to and clustered by its module. The layers are the whole point: <strong>a link that skips a plane is a layering violation you can see as geometry</strong>. Flatten the stack to read it as one graph, or drill into any single layer.</p>
+</header>
+
+<div class="app" data-fullscreen>
+  <div class="topbar">
+    <span class="brand">{{project}}</span>
+    <div class="seg" role="group" aria-label="View mode">
+      <button id="mFlat">Flat</button>
+      <button id="mStack" class="on">Stacked</button>
+    </div>
+    <button class="tb crit" id="tSkips">isolate the skips</button>
+    <button class="tb on" id="tLinks">links</button>
+    <button class="tb" id="tExtra">wiring · platform · tests</button>
+    <span class="grow"></span>
+    <input id="q" type="search" placeholder="filter files…" aria-label="Filter files">
+    <button class="tb" id="home">reset</button>
+  </div>
+
+  <div class="body" data-fs-grow>
+    <nav class="rail" id="rail"></nav>
+    <div class="stage" id="stage">
+      <canvas id="cv" tabindex="0" aria-label="Interactive stacked-layer view of the {{project}} backend"></canvas>
+      <div class="crumb" id="crumb"></div>
+      <div class="card" id="card"></div>
+      <div class="hud" id="hud"></div>
+    </div>
+    <aside class="insp" id="insp"></aside>
+  </div>
+</div>
+
+<section>
+  <div class="shead"><span class="num">01</span><h2>Reading the stack</h2></div>
+  <p class="note" data-narr="planes"></p>
+  <p class="note">A file sits on the plane of the pattern it implements, inside the cluster belonging to its module. Cluster positions are identical on every plane, so <strong>a module is a vertical silo</strong> — look straight down a cluster and you see its whole stack.</p>
+  <p class="note">Links are real imports. A link between neighbouring planes is ordinary flow; a link that jumps a plane is not. <span data-narr="layering"></span></p>
+  <div class="keys">
+    <div class="key"><b>drag</b><span>Orbit the stack.</span></div>
+    <div class="key"><b>scroll</b><span>Fly in and out.</span></div>
+    <div class="key"><b>shift + drag</b><span>Pan sideways.</span></div>
+    <div class="key"><b>click a plane</b><span>Drill into that layer alone.</span></div>
+    <div class="key"><b>click a node</b><span>Open the file and its links.</span></div>
+    <div class="key"><b>Esc</b><span>Back out to the full stack.</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">02</span><h2>What the geometry exposes</h2></div>
+  <p class="note" data-narr="crossDomain"></p>
+  <p class="note" data-narr="absent"></p>
+  <p class="note" data-narr="cycles"></p>
+</section>
+
+<section>
+  <div class="shead"><span class="num">03</span><h2>Honest limits</h2></div>
+  <p class="note" data-narr="provenance"></p>
+  <p class="note" data-narr="caveats"></p>
+</section>
+
+<footer>
+  <p class="note" style="font-size:14px">Generated by <span class="mono">metatron</span> · <span id="gen"></span> · <span id="fstats"></span></p>
+</footer>
+
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById('data').textContent);
+document.getElementById('gen').textContent = new Date(D.generatedAt).toISOString().slice(0,10);
+document.getElementById('fstats').textContent =
+  D.nodes.length + ' files · ' + D.links.length + ' links · ' +
+  D.links.filter(function(l){ return l[3]; }).length + ' flagged · ' +
+  D.inversions + ' inversion' + (D.inversions === 1 ? '' : 's');
+
+var C = {
+  deep:'#3C525A', mid:'#5E787F', hi:'#8CA7AC', glow:'#B3C7CA', fog:'#6E888F',
+  ok:'#E4EFF1', warn:'#E8A13C', crit:'#E4574F', cross:'#9CD1D8', text:'#E7F0F1'
+};
+// metatron-rust change: the core planes come from the model's layers,
+// not from NestJS's eight. `extra` marks the test plane and the plane for
+// symbols the classifier did not recognise.
+var CORE = D.tiers.filter(function(t){ return !t.extra; }).map(function(t){ return t.i; });
+var RULE = {}; D.skipRules.forEach(function(r){ RULE[r.id] = r; });
+function linkSev(k){ return RULE[k] ? RULE[k].sev : null; }
+var byIdx = {}; D.nodes.forEach(function(n){ byIdx[n.i] = n; });
+var planeOf = {}; D.planes.forEach(function(p){ planeOf[p.t] = p; });
+
+var GAP = 26;                                   // vertical distance between planes
+function planeY(t, spread){
+  var order = D.planes.filter(function(p){ return true; }).map(function(p){ return p.t; });
+  var k = order.indexOf(t);
+  return (order.length/2 - k) * GAP * spread;
+}
+
+/* ---------------- state ---------------- */
+var state = { mode:'stack', spread:1, drill:null, selNode:null, links:true,
+              skipsOnly:false, extra:false, q:'' };
+
+/* ---------------- camera ---------------- */
+var CORE_YS = CORE.filter(function(t){ return planeOf[t]; }).map(function(t){ return planeY(t,1); });
+var CENTER_Y = (Math.max.apply(null,CORE_YS) + Math.min.apply(null,CORE_YS)) / 2;
+var SPAN_Y = Math.max.apply(null,CORE_YS) - Math.min.apply(null,CORE_YS);
+var cam = { tx:0, ty:CENTER_Y, tz:0, dist:Math.max(240, SPAN_Y*1.85), yaw:0.72, pitch:0.46, fov:48*Math.PI/180 };
+var HOME = JSON.parse(JSON.stringify(cam));
+var tween = null, spreadTween = null;
+function eyePos(){
+  var ce = Math.cos(cam.pitch), se = Math.sin(cam.pitch);
+  return [cam.tx + cam.dist*ce*Math.cos(cam.yaw), cam.ty + cam.dist*se, cam.tz + cam.dist*ce*Math.sin(cam.yaw)];
+}
+var V = { eye:[0,0,0], r:[1,0,0], u:[0,1,0], f:[0,0,1], focal:600, cx:0, cy:0 };
+function updateView(W,H){
+  var eye = eyePos();
+  var fx = cam.tx-eye[0], fy = cam.ty-eye[1], fz = cam.tz-eye[2];
+  var fl = Math.hypot(fx,fy,fz)||1; fx/=fl; fy/=fl; fz/=fl;
+  var rx = -fz, ry = 0, rz = fx;
+  var rl = Math.hypot(rx,ry,rz)||1; rx/=rl; ry/=rl; rz/=rl;
+  var ux = ry*fz-rz*fy, uy = rz*fx-rx*fz, uz = rx*fy-ry*fx;
+  V.eye = eye; V.r=[rx,ry,rz]; V.u=[ux,uy,uz]; V.f=[fx,fy,fz];
+  V.focal = (H/2)/Math.tan(cam.fov/2); V.cx = W/2; V.cy = H/2;
+}
+var NEAR = 1.5;
+function project(p){
+  var dx=p[0]-V.eye[0], dy=p[1]-V.eye[1], dz=p[2]-V.eye[2];
+  var vz = dx*V.f[0]+dy*V.f[1]+dz*V.f[2];
+  if (vz < NEAR) return null;
+  var s = V.focal/vz;
+  return [ V.cx + (dx*V.r[0]+dy*V.r[1]+dz*V.r[2])*s, V.cy - (dx*V.u[0]+dy*V.u[1]+dz*V.u[2])*s, vz ];
+}
+
+/* ---------------- colour ---------------- */
+function hex2rgb(h){ h=h.replace('#',''); var n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+var RGB = {}; Object.keys(C).forEach(function(k){ RGB[k] = hex2rgb(C[k]); });
+function fogged(rgb, vz, alpha){
+  var t = Math.max(0, Math.min(0.55, (vz-120)/700));
+  var f = RGB.fog;
+  var r = Math.round(rgb[0]+(f[0]-rgb[0])*t), g = Math.round(rgb[1]+(f[1]-rgb[1])*t), b = Math.round(rgb[2]+(f[2]-rgb[2])*t);
+  return 'rgba('+r+','+g+','+b+','+alpha+')';
+}
+
+/* ---------------- filtering ---------------- */
+function planeVisible(t){
+  if (!state.extra && CORE.indexOf(t) < 0) return false;
+  if (state.drill !== null && t !== state.drill) return state.spread > 0.05;
+  return true;
+}
+var skipIdx = null;
+function computeSkipSet(){
+  skipIdx = new Set();
+  D.links.forEach(function(l){
+    if (linkSev(l[3])) { skipIdx.add(l[0]); skipIdx.add(l[1]); }
+  });
+}
+computeSkipSet();
+function nodeVisible(n){
+  if (!state.extra && CORE.indexOf(n.t) < 0) return false;
+  if (state.skipsOnly && !skipIdx.has(n.i)) return false;
+  if (state.q && (n.f + ' ' + (n.cls||'')).toLowerCase().indexOf(state.q) < 0) return false;
+  return true;
+}
+function linkVisible(l){
+  if (state.skipsOnly && !linkSev(l[3])) return false;
+  var a = byIdx[l[0]], b = byIdx[l[1]];
+  if (!a || !b) return false;
+  return nodeVisible(a) && nodeVisible(b);
+}
+
+/* ---------------- canvas ---------------- */
+var cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+var STAGE = document.getElementById('stage');
+var W=0, H=0, DPR=1;
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  var r = STAGE.getBoundingClientRect();
+  W = Math.max(320, Math.floor(r.width)); H = Math.max(320, Math.floor(r.height));
+  cv.width = Math.floor(W*DPR); cv.height = Math.floor(H*DPR);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+}
+resize();
+if (window.ResizeObserver) new ResizeObserver(resize).observe(STAGE);
+else window.addEventListener('resize', resize);
+
+function nodeWorld(n){ return [n.x, planeY(n.t, state.spread), n.z]; }
+
+function drawPlaneLabel(p, y, alpha){
+  var E = D.extent;
+  // Text must lie flat on the plane and read from above, which means
+  // dir x up has to point at +y. Both candidates below satisfy that; we pick
+  // whichever runs left-to-right on screen from where the camera currently is.
+  var cands = [
+    { a:[ E*1.12, y,  E*0.78], d:[0,0,-1], u:[-1,0,0] },
+    { a:[-E*1.12, y, -E*0.78], d:[0,0, 1], u:[ 1,0,0] }
+  ];
+  var pick = null;
+  for (var i=0;i<cands.length;i++){
+    var c = cands[i];
+    var p0 = project(c.a);
+    var p1 = project([c.a[0]+c.d[0], y, c.a[2]+c.d[2]]);
+    var p2 = project([c.a[0]+c.u[0], y, c.a[2]+c.u[2]]);
+    if (!p0 || !p1 || !p2) continue;
+    var ax = p1[0]-p0[0], ay = p1[1]-p0[1];
+    if (Math.hypot(ax,ay) < 0.12) continue;
+    if (ax <= 0) continue;                       // must read left to right
+    pick = { p0:p0, ax:ax, ay:ay, bx:p2[0]-p0[0], by:p2[1]-p0[1] };
+    break;
+  }
+  if (!pick) return;
+  ctx.save();
+  // canvas y grows downward, so the in-plane "up" maps to the negated y basis
+  ctx.setTransform(DPR*pick.ax, DPR*pick.ay, DPR*-pick.bx, DPR*-pick.by, DPR*pick.p0[0], DPR*pick.p0[1]);
+  ctx.fillStyle = 'rgba(231,240,241,'+alpha+')';
+  ctx.font = '600 6.4px "Archivo", sans-serif';
+  ctx.fillText(p.name.toUpperCase(), 0, 0);
+  ctx.fillStyle = 'rgba(231,240,241,'+(alpha*0.55)+')';
+  ctx.font = '400 4px "IBM Plex Mono", monospace';
+  ctx.fillText(p.count + ' files · ' + p.sub, 0, 6.2);
+  ctx.restore();
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+
+function draw(){
+  updateView(W,H);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+
+  // atmosphere
+  var g = ctx.createRadialGradient(W*0.5, H*0.28, 10, W*0.5, H*0.35, Math.max(W,H)*0.82);
+  g.addColorStop(0, C.glow); g.addColorStop(0.42, C.hi); g.addColorStop(1, C.deep);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  var E = D.extent;
+  var planes = D.planes.filter(function(p){ return planeVisible(p.t); });
+
+  // planes back to front
+  var pl = planes.map(function(p){
+    var y = planeY(p.t, state.spread);
+    var c = project([0,y,0]);
+    return { p:p, y:y, d: c ? c[2] : 1e9 };
+  }).sort(function(a,b){ return b.d - a.d; });
+
+  pl.forEach(function(o){
+    var corners = [[-E,o.y,-E],[E,o.y,-E],[E,o.y,E],[-E,o.y,E]].map(project);
+    if (corners.some(function(c){ return !c; })) return;
+    var drilled = state.drill !== null;
+    var focus = !drilled || state.drill === o.p.t;
+    var a = (focus ? 0.085 : 0.014) * (0.35 + 0.65*state.spread);
+    ctx.beginPath();
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (var i=1;i<4;i++) ctx.lineTo(corners[i][0], corners[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,'+a+')'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,'+(focus?0.20:0.05)+')'; ctx.lineWidth = 1; ctx.stroke();
+    if (state.spread > 0.3) drawPlaneLabel(o.p, o.y, focus ? 0.82 : 0.14);
+  });
+
+  // links
+  if (state.links){
+    var skips = [], inversions = [];
+    ctx.lineWidth = 1;
+    D.links.forEach(function(l){
+      if (!linkVisible(l)) return;
+      var a = byIdx[l[0]], b = byIdx[l[1]];
+      var pa = project(nodeWorld(a)), pb = project(nodeWorld(b));
+      if (!pa || !pb) return;
+      var sv = linkSev(l[3]);
+      if (sv){ skips.push([pa,pb,sv]); return; }
+      var drilled = state.drill !== null;
+      if (drilled && a.t !== state.drill && b.t !== state.drill) return;
+      var dim = state.selNode && state.selNode !== a.i && state.selNode !== b.i;
+
+      // metatron-rust change: `impl Trait for Type` runs from
+      // infrastructure back up to domain. Drawn like an ordinary
+      // dependency it is the worst-looking line on the diagram; it is in
+      // fact the dependency inversion the architecture is built on. Draw
+      // it dashed and in the good colour, and never as a skip.
+      if (l[4] === 'impl') {
+        inversions.push([pa, pb, dim ? 0.15 : 0.75]);
+        return;
+      }
+      var al = dim ? 0.03 : (l[2] ? 0.16 : 0.09);
+      ctx.strokeStyle = fogged(l[2] ? RGB.cross : RGB.ok, (pa[2]+pb[2])/2, al);
+      ctx.beginPath(); ctx.moveTo(pa[0],pa[1]); ctx.lineTo(pb[0],pb[1]); ctx.stroke();
+    });
+    // Drawn last and on top: the port seam should be findable without
+    // being told where to look.
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.8;
+    inversions.forEach(function(s){
+      ctx.strokeStyle = 'rgba(90,200,150,' + s[2] + ')';
+      ctx.beginPath(); ctx.moveTo(s[0][0],s[0][1]); ctx.lineTo(s[1][0],s[1][1]); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    skips.forEach(function(s){
+      ctx.strokeStyle = s[2] === 'crit' ? 'rgba(228,87,79,.92)' : 'rgba(232,161,60,.75)';
+      ctx.lineWidth = s[2] === 'crit' ? 2 : 1.4;
+      ctx.beginPath(); ctx.moveTo(s[0][0],s[0][1]); ctx.lineTo(s[1][0],s[1][1]); ctx.stroke();
+    });
+    ctx.lineWidth = 1;
+  }
+
+  // nodes, far to near
+  var pts = [];
+  D.nodes.forEach(function(n){
+    if (!nodeVisible(n)) return;
+    var p = project(nodeWorld(n));
+    if (!p) return;
+    if (p[0] < -30 || p[0] > W+30 || p[1] < -30 || p[1] > H+30) return;
+    pts.push({ n:n, p:p });
+  });
+  pts.sort(function(a,b){ return b.p[2] - a.p[2]; });
+  var drilled = state.drill !== null;
+  pts.forEach(function(o){
+    var n = o.n, p = o.p;
+    var faded = (drilled && n.t !== state.drill) ? 0.16 : 1;
+    if (state.selNode && state.selNode !== n.i) faded *= 0.45;
+    var rgb = n.s === 'crit' ? RGB.crit : n.s === 'warn' ? RGB.warn : RGB.ok;
+    var r = Math.max(1.4, Math.min(7, V.focal/p[2] * (n.s === 'ok' ? 1.15 : 1.6)));
+    if (state.selNode === n.i) r = Math.max(r, 4.5);
+    ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 6.2832);
+    ctx.fillStyle = fogged(rgb, p[2], 0.95*faded); ctx.fill();
+    if (n.s !== 'ok' && faded > 0.5){
+      ctx.beginPath(); ctx.arc(p[0], p[1], r+2.6, 0, 6.2832);
+      ctx.strokeStyle = fogged(rgb, p[2], 0.3*faded); ctx.lineWidth = 1; ctx.stroke();
+    }
+  });
+
+  // labels when drilled in or few nodes
+  if (drilled || pts.length <= 26){
+    ctx.textAlign = 'center';
+    ctx.font = '500 10px "IBM Plex Mono", monospace';
+    pts.forEach(function(o){
+      if (drilled && o.n.t !== state.drill) return;
+      if (o.p[2] > 220) return;
+      ctx.fillStyle = 'rgba(231,240,241,'+Math.max(0.3, Math.min(0.95, 200/o.p[2]))+')';
+      ctx.fillText(o.n.cls || o.n.f.split('/').pop(), o.p[0], o.p[1]-9);
+    });
+    ctx.textAlign = 'start';
+  }
+
+  document.getElementById('hud').textContent =
+    pts.length + ' files shown · dist ' + cam.dist.toFixed(0) +
+    (state.drill !== null ? ' · drilled into ' + planeOf[state.drill].name : '');
+}
+
+function loop(now){
+  if (tween){
+    var t = Math.min(1,(now-tween.t0)/tween.dur), e = t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+    ['tx','ty','tz','dist','yaw','pitch'].forEach(function(k){ cam[k] = tween.a[k] + (tween.b[k]-tween.a[k])*e; });
+    if (t>=1) tween = null;
+  }
+  if (spreadTween){
+    var t2 = Math.min(1,(now-spreadTween.t0)/spreadTween.dur), e2 = t2<0.5 ? 4*t2*t2*t2 : 1-Math.pow(-2*t2+2,3)/2;
+    state.spread = spreadTween.a + (spreadTween.b - spreadTween.a)*e2;
+    if (t2>=1) spreadTween = null;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function flyTo(b, dur){
+  tween = { t0: performance.now(), dur: dur||800,
+    a:{tx:cam.tx,ty:cam.ty,tz:cam.tz,dist:cam.dist,yaw:cam.yaw,pitch:cam.pitch}, b:b };
+}
+function setSpread(v, dur){ spreadTween = { t0: performance.now(), dur: dur||700, a: state.spread, b: v }; }
+
+/* Frames the visible stack: nudges the aim until the content is centred, then
+   scales the distance until it fits. Runs on load, on resize and on reset, so it
+   is correct at any viewport rather than relying on tuned constants. */
+function fitStack(spread){
+  var sp = spread === undefined ? state.spread : spread;
+  var vis = D.planes.filter(function(p){ return planeVisible(p.t); });
+  if (!vis.length || !W || !H) return;
+  var E = D.extent * 1.34, pts = [];
+  vis.forEach(function(p){
+    var y = planeY(p.t, sp);
+    [[-E,-E],[E,-E],[E,E],[-E,E]].forEach(function(c){ pts.push([c[0], y, c[1]]); });
+  });
+  for (var it=0; it<10; it++){
+    updateView(W,H);
+    var minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9, clipped=false;
+    for (var i=0;i<pts.length;i++){
+      var q = project(pts[i]);
+      if (!q){ clipped = true; break; }
+      if (q[0]<minX) minX=q[0]; if (q[0]>maxX) maxX=q[0];
+      if (q[1]<minY) minY=q[1]; if (q[1]>maxY) maxY=q[1];
+    }
+    if (clipped){ cam.dist = Math.min(900, cam.dist*1.3); continue; }
+    var scale = cam.dist / V.focal;                    // world units per screen pixel at the aim point
+    var dx = ((minX+maxX)/2) - W/2, dy = ((minY+maxY)/2) - H/2;
+    cam.tx += (V.r[0]*dx - V.u[0]*dy) * scale;
+    cam.ty += (V.r[1]*dx - V.u[1]*dy) * scale;
+    cam.tz += (V.r[2]*dx - V.u[2]*dy) * scale;
+    var need = Math.max((maxX-minX)/(W*0.88), (maxY-minY)/(H*0.88));
+    if (Math.abs(need-1) < 0.015 && Math.abs(dx) < 2 && Math.abs(dy) < 2) break;
+    cam.dist = Math.max(40, Math.min(900, cam.dist*need));
+  }
+}
+
+/* ---------------- picking ---------------- */
+function pickNode(mx,my){
+  // radius tracks what is actually drawn, plus a small forgiveness margin,
+  // and the closest dot to the cursor wins rather than the closest to the camera
+  var best = null;
+  D.nodes.forEach(function(n){
+    if (!nodeVisible(n)) return;
+    if (state.drill !== null && n.t !== state.drill) return;
+    var p = project(nodeWorld(n));
+    if (!p) return;
+    var drawn = Math.max(1.4, Math.min(7, V.focal/p[2] * (n.s === 'ok' ? 1.15 : 1.6)));
+    var d = Math.hypot(p[0]-mx, p[1]-my);
+    if (d > drawn + 2) return;
+    if (!best || d < best.d - 0.5 || (Math.abs(d - best.d) <= 0.5 && p[2] < best.z)) {
+      best = { i:n.i, d:d, z:p[2] };
+    }
+  });
+  return best ? best.i : null;
+}
+function pickPlane(mx,my){
+  var E = D.extent, best = null;
+  D.planes.forEach(function(p){
+    if (!planeVisible(p.t)) return;
+    var y = planeY(p.t, state.spread);
+    var cs = [[-E,y,-E],[E,y,-E],[E,y,E],[-E,y,E]].map(project);
+    if (cs.some(function(c){ return !c; })) return;
+    var poly = cs.map(function(c){ return [c[0],c[1]]; });
+    var inside = false;
+    for (var i=0,j=3;i<4;j=i++){
+      var xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+      if (((yi>my)!==(yj>my)) && (mx < (xj-xi)*(my-yi)/((yj-yi)||1e-9)+xi)) inside = !inside;
+    }
+    if (inside){
+      var d = cs[0][2];
+      if (!best || d < best.d) best = { t:p.t, d:d };
+    }
+  });
+  return best ? best.t : null;
+}
+
+/* ---------------- input ---------------- */
+var drag = null;
+cv.addEventListener('pointerdown', function(ev){
+  cv.setPointerCapture(ev.pointerId);
+  drag = { x:ev.clientX, y:ev.clientY, moved:0, pan: ev.shiftKey || ev.button===1 };
+  cv.classList.add('drag');
+});
+cv.addEventListener('pointermove', function(ev){
+  if (!drag) return;
+  var dx = ev.clientX-drag.x, dy = ev.clientY-drag.y;
+  drag.moved += Math.abs(dx)+Math.abs(dy);
+  drag.x = ev.clientX; drag.y = ev.clientY; tween = null;
+  if (drag.pan){
+    var sc = cam.dist*0.0015;
+    cam.tx -= (V.r[0]*dx)*sc; cam.tz -= (V.r[2]*dx)*sc; cam.ty += dy*sc;
+  } else {
+    cam.yaw += dx*0.006;
+    cam.pitch = Math.max(-0.55, Math.min(1.42, cam.pitch + dy*0.005));
+  }
+});
+cv.addEventListener('pointerup', function(ev){
+  if (!drag) return;
+  cv.classList.remove('drag');
+  if (drag.moved < 5){
+    var r = cv.getBoundingClientRect(), mx = ev.clientX-r.left, my = ev.clientY-r.top;
+    var ni = pickNode(mx,my);
+    if (ni !== null){ selectNode(ni); }
+    else {
+      var pt = pickPlane(mx,my);
+      if (pt !== null) drillInto(pt);
+      else { selectNode(null); }
+    }
+  }
+  drag = null;
+});
+cv.addEventListener('pointercancel', function(){ drag = null; cv.classList.remove('drag'); });
+cv.addEventListener('wheel', function(ev){
+  ev.preventDefault(); tween = null;
+  cam.dist = Math.max(22, Math.min(560, cam.dist*Math.exp(ev.deltaY*0.0012)));
+}, { passive:false });
+cv.addEventListener('keydown', function(ev){
+  if (ev.key === 'Escape'){ ev.preventDefault(); if (state.drill !== null) drillInto(null); else { selectNode(null); flyTo(HOME); } }
+});
+
+/* ---------------- actions ---------------- */
+function drillInto(t){
+  state.drill = t;
+  state.selNode = null;
+  if (t === null){
+    setSpread(state.mode === 'flat' ? 0 : 1);
+    var s0 = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+    cam.pitch = state.mode === 'flat' ? 0.95 : 0.46;
+    fitStack(state.mode === 'flat' ? 0 : 1);
+    var g = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+    cam.tx=s0.tx; cam.ty=s0.ty; cam.tz=s0.tz; cam.dist=s0.dist; cam.yaw=s0.yaw; cam.pitch=s0.pitch;
+    flyTo(g);
+  } else {
+    var y = planeY(t, state.mode === 'flat' ? 0 : 1);
+    flyTo({ tx:0, ty:y, tz:0, dist:150, yaw:cam.yaw, pitch:0.30 });
+  }
+  renderRail(); renderInsp(); renderCrumb();
+}
+function selectNode(i){
+  state.selNode = i;
+  renderInsp();
+}
+function setMode(m){
+  state.mode = m;
+  document.getElementById('mFlat').classList.toggle('on', m === 'flat');
+  document.getElementById('mStack').classList.toggle('on', m === 'stack');
+  setSpread(m === 'flat' ? 0 : 1);
+  if (state.drill === null){
+    var save = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+    cam.pitch = m === 'flat' ? 0.95 : 0.46;
+    fitStack(m === 'flat' ? 0 : 1);
+    var goal = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+    cam.tx=save.tx; cam.ty=save.ty; cam.tz=save.tz; cam.dist=save.dist; cam.yaw=save.yaw; cam.pitch=save.pitch;
+    flyTo(goal, 750);
+  }
+}
+
+/* ---------------- panels ---------------- */
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+var TIER_SW = ['#8FB4E0','#9AA8B4','#B49AE0','#E8A13C','#7FCFA8','#D9C48A','#7FC7DA','#D89AC4','#8FA0AE'];
+
+function renderRail(){
+  var el = document.getElementById('rail');
+  var h = ['<h4>Layers</h4>'];
+  D.planes.forEach(function(p){
+    if (!state.extra && CORE.indexOf(p.t) < 0) return;
+    h.push('<button class="lay'+(state.drill===p.t?' sel':'')+(p.extra?' extra':'')+'" data-t="'+p.t+'">'+
+      '<span class="sq" style="background:'+(TIER_SW[p.t]||'#8FA0AE')+'"></span>'+esc(p.name)+
+      '<span class="n">'+p.count+'</span></button>');
+  });
+  el.innerHTML = h.join('');
+  el.querySelectorAll('.lay').forEach(function(b){
+    b.addEventListener('click', function(){
+      var t = Number(b.getAttribute('data-t'));
+      drillInto(state.drill === t ? null : t);
+    });
+  });
+}
+function renderCrumb(){
+  var el = document.getElementById('crumb');
+  el.innerHTML = state.drill === null ? '' :
+    '<button id="back">← all layers · '+esc(planeOf[state.drill].name)+'</button>';
+  var b = document.getElementById('back');
+  if (b) b.addEventListener('click', function(){ drillInto(null); });
+}
+function renderCard(){
+  var skips = D.links.filter(function(l){ return linkSev(l[3]); });
+  var s2 = skips.filter(function(l){ return linkSev(l[3]) === 'crit'; }).length;
+  var s1 = skips.length - s2;
+  var ok = D.nodes.length - D.nodes.filter(function(n){ return n.s !== 'ok'; }).length;
+  var tot = D.nodes.length;
+  var h = [];
+  h.push('<p class="lab">Layer integrity</p>');
+  h.push('<div class="big"><b>'+skips.length+'</b><span>links skip a layer</span></div>');
+  h.push('<div class="sevbar">'+
+    '<i style="background:var(--crit);width:'+(s2/skips.length*100).toFixed(1)+'%"></i>'+
+    '<i style="background:var(--warn);width:'+(s1/skips.length*100).toFixed(1)+'%"></i></div>');
+  h.push('<div class="sevleg"><span><b style="color:var(--crit)">'+s2+'</b> skip two</span>'+
+    '<span><b style="color:var(--warn)">'+s1+'</b> skip one</span>'+
+    '<span style="margin-left:auto">'+ok+'/'+tot+' clean</span></div>');
+  h.push('<ul>');
+  D.skipRules.forEach(function(r){
+    var n = skips.filter(function(l){ return l[3] === r.id; }).length;
+    if (!n) return;
+    h.push('<li>'+esc(r.why)+'<b>'+n+'</b></li>');
+  });
+  h.push('</ul>');
+  document.getElementById('card').innerHTML = h.join('');
+}
+function renderInsp(){
+  var el = document.getElementById('insp');
+  if (state.selNode === null){
+    var h0 = ['<p class="empty">Click a node for its file and links, or a plane to drill into that layer.</p>'];
+    if (state.drill !== null){
+      var p = planeOf[state.drill];
+      h0 = ['<h3>'+esc(p.name)+'</h3><p class="sub">'+esc(p.sub)+' · '+p.count+' files</p>'];
+      h0.push('<p class="ilab">Modules on this layer</p><ul class="kv">');
+      p.modules.forEach(function(m){ h0.push('<li>'+esc(m.m)+'<b>'+m.n+'</b></li>'); });
+      h0.push('</ul>');
+      h0.push('<p class="ilab">Patterns</p><ul class="kv">');
+      p.patterns.forEach(function(x){ h0.push('<li>'+esc(x)+'</li>'); });
+      h0.push('</ul>');
+    }
+    el.innerHTML = h0.join('');
+    return;
+  }
+  var n = byIdx[state.selNode];
+  var out = D.links.filter(function(l){ return l[0] === n.i; });
+  var inc = D.links.filter(function(l){ return l[1] === n.i; });
+  var h = [];
+  h.push('<h3>'+esc(n.cls || n.f.split('/').pop())+'</h3>');
+  h.push('<p class="sub">'+esc(n.f)+'</p>');
+  (n.w||[]).forEach(function(w){ h.push('<div class="warnbox'+(n.s==='crit'?' crit':'')+'">'+esc(w)+'</div>'); });
+  h.push('<ul class="kv">');
+  h.push('<li>layer<b>'+esc(planeOf[n.t].name)+'</b></li>');
+  h.push('<li>pattern<b>'+esc(n.p)+'</b></li>');
+  h.push('<li>module<b>'+esc(n.m)+'</b></li>');
+  h.push('<li>lines<b>'+n.loc+'</b></li>');
+  h.push('</ul>');
+  function lk(list, dir){
+    return list.map(function(l){
+      var o = byIdx[dir === 'out' ? l[1] : l[0]];
+      if (!o) return '';
+      var cls = linkSev(l[3]) === 'crit' ? ' crit' : (linkSev(l[3]) === 'warn' ? ' skip' : '');
+      return '<li class="'+cls+'">'+(dir==='out'?'→ ':'← ')+esc(o.cls || o.f.split('/').pop())+
+        ' <span class="t">'+esc(planeOf[o.t].name)+(l[2]?' · cross-module':'')+'</span></li>';
+    }).join('');
+  }
+  h.push('<p class="ilab">Imports — '+out.length+'</p>');
+  h.push(out.length ? '<ul class="lks">'+lk(out,'out')+'</ul>' : '<p class="empty" style="font-size:12px">none</p>');
+  h.push('<p class="ilab">Imported by — '+inc.length+'</p>');
+  h.push(inc.length ? '<ul class="lks">'+lk(inc,'in')+'</ul>' : '<p class="empty" style="font-size:12px">none</p>');
+  el.innerHTML = h.join('');
+  el.scrollTop = 0;
+}
+
+/* ---------------- controls ---------------- */
+document.getElementById('mFlat').addEventListener('click', function(){ setMode('flat'); });
+document.getElementById('mStack').addEventListener('click', function(){ setMode('stack'); });
+function tog(id, key, after){
+  var b = document.getElementById(id);
+  b.addEventListener('click', function(){
+    state[key] = !state[key];
+    b.classList.toggle('on', state[key]);
+    if (after) after();
+  });
+}
+tog('tLinks','links');
+tog('tSkips','skipsOnly');
+(function(){
+  var n = D.links.filter(function(l){ return linkSev(l[3]); }).length;
+  document.getElementById('tSkips').textContent = n ? 'isolate the ' + n + ' skip' + (n === 1 ? '' : 's') : 'no skips to isolate';
+  if (!n) document.getElementById('tSkips').disabled = true;
+})();
+tog('tExtra','extra', function(){ renderRail(); });
+document.getElementById('q').addEventListener('input', function(e){ state.q = e.target.value.trim().toLowerCase(); });
+document.getElementById('home').addEventListener('click', function(){
+  state.q = ''; document.getElementById('q').value = '';
+  state.skipsOnly = false; document.getElementById('tSkips').classList.remove('on');
+  state.selNode = null;
+  drillInto(null); setMode('stack');
+});
+
+fitStack(1);
+HOME = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch };
+var userMoved = false;
+cv.addEventListener('pointerdown', function(){ userMoved = true; });
+cv.addEventListener('wheel', function(){ userMoved = true; });
+var _resize = resize;
+resize = function(){ _resize(); if (!userMoved && state.drill === null) { fitStack(); HOME = { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist, yaw:cam.yaw, pitch:cam.pitch }; } };
+if (window.ResizeObserver) new ResizeObserver(function(){ resize(); }).observe(STAGE);
+
+renderRail(); renderCard(); renderInsp(); renderCrumb();
+
+window.__stack = { D:D, project:project, updateView:updateView, cam:cam, state:state,
+                   pickNode:pickNode, pickPlane:pickPlane, planeY:planeY, V:V };
+})();
+</script>

@@ -1,0 +1,388 @@
+<!-- metatron: Where does refactoring pay? Every file plotted by how often it changes against how much depends on it. -->
+<title>{{project}} Hotspots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400&display=swap">
+
+<style>
+:root {
+  --paper:#F2F4F8; --surface:#FFFFFF; --surface2:#E7ECF3; --sunk:#DEE5EF;
+  --ink:#151E29; --ink2:#485A6F; --ink3:#7A8B9F;
+  --rule:#D2DAE4; --rule2:#B9C4D2;
+  --blue:#2B5CA8; --amber:#A85B06; --rose:#A31C39; --green:#1B6448; --violet:#54479A; --teal:#136A80;
+  --hot:#A31C39; --warm:#A85B06; --calm:#5C7086;
+  --shadow:0 1px 2px rgba(21,30,41,.06), 0 8px 24px rgba(21,30,41,.07);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#0E141B; --surface:#151D26; --surface2:#1C2631; --sunk:#111922;
+    --ink:#E3EAF2; --ink2:#9EAFC1; --ink3:#6B7C91;
+    --rule:#28343F; --rule2:#36454F;
+    --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6; --teal:#4FB6CE;
+    --hot:#EE7189; --warm:#E0A04A; --calm:#67788C;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#0E141B; --surface:#151D26; --surface2:#1C2631; --sunk:#111922;
+  --ink:#E3EAF2; --ink2:#9EAFC1; --ink3:#6B7C91;
+  --rule:#28343F; --rule2:#36454F;
+  --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6; --teal:#4FB6CE;
+  --hot:#EE7189; --warm:#E0A04A; --calm:#67788C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+}
+
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink);
+  font-family:'Archivo',ui-sans-serif,system-ui,sans-serif; font-size:15px; line-height:1.55;
+  -webkit-font-smoothing:antialiased; }
+.mono { font-family:'IBM Plex Mono',ui-monospace,monospace; }
+.wrap { max-width:1560px; margin:0 auto; padding:0 26px 80px; }
+
+.mast { padding:48px 0 24px; border-bottom:2px solid var(--ink); }
+.eyebrow { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink3); margin:0 0 16px; }
+h1 { font-size:clamp(34px,5.2vw,58px); line-height:1.03; letter-spacing:-.03em; font-weight:700; margin:0; text-wrap:balance; }
+.dek { font-family:'Source Serif 4',Georgia,serif; font-size:18px; line-height:1.6; color:var(--ink2);
+  max-width:64ch; margin:18px 0 0; }
+.statrow { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:1px;
+  background:var(--rule); border:1px solid var(--rule); margin-top:32px; }
+.stat { background:var(--paper); padding:13px 15px; }
+.stat b { display:block; font-family:'IBM Plex Mono',monospace; font-size:24px; font-weight:600;
+  letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.stat span { display:block; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink3); margin-top:3px; }
+.stat.hot b { color:var(--hot); }
+
+.bar { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin:26px 0 12px; }
+.btn { font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:.04em;
+  border:1px solid var(--rule2); background:var(--surface); color:var(--ink2); padding:6px 11px; cursor:pointer; }
+.btn:hover { border-color:var(--ink3); color:var(--ink); }
+.btn.on { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.btn:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+#q, select { font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:6px 11px;
+  border:1px solid var(--rule2); background:var(--surface); color:var(--ink); }
+#q { min-width:180px; }
+.sep { width:1px; height:20px; background:var(--rule2); margin:0 3px; }
+
+.plate { border:1px solid var(--rule2); background:var(--surface); box-shadow:var(--shadow); }
+.split { display:grid; grid-template-columns:minmax(0,1fr) 330px; }
+@media (max-width:1100px){ .split { grid-template-columns:minmax(0,1fr); } }
+.chart { overflow:hidden; }
+svg.sc { display:block; width:100%; height:auto; }
+svg.sc text { font-family:'IBM Plex Mono',monospace; }
+.axis { stroke:var(--rule2); stroke-width:1; }
+.gridl { stroke:var(--rule); stroke-width:1; stroke-dasharray:2 3; }
+.axlab { font-size:10.5px; fill:var(--ink3); }
+.axtitle { font-size:11px; fill:var(--ink2); font-weight:600; letter-spacing:.04em; }
+.quad { fill:var(--hot); opacity:.045; }
+.quadlab { font-size:10px; fill:var(--hot); opacity:.75; letter-spacing:.06em; }
+.pt { cursor:pointer; }
+.pt circle { stroke:var(--surface); stroke-width:1; }
+.pt.dim { opacity:.16; }
+.pt.sel circle { stroke:var(--ink); stroke-width:2; }
+.ptlab { font-size:9.5px; fill:var(--ink2); }
+.insp { border-left:1px solid var(--rule2); padding:16px 18px; overflow:auto; max-height:min(74vh,820px); }
+@media (max-width:1100px){ .insp { border-left:0; border-top:1px solid var(--rule2); max-height:520px; } }
+.insp .empty { font-family:'Source Serif 4',Georgia,serif; font-style:italic; color:var(--ink3); }
+.insp h3 { margin:0 0 3px; font-size:14px; font-weight:600; word-break:break-all; }
+.insp .sub { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink3); margin:0 0 12px; word-break:break-all; }
+.ilab { font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--ink3); margin:14px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--rule); }
+.kv { list-style:none; margin:0; padding:0; }
+.kv li { display:flex; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink2); padding:3px 0; }
+.kv li b { color:var(--ink); font-weight:500; margin-left:auto; font-variant-numeric:tabular-nums; }
+.legend { display:flex; flex-wrap:wrap; gap:11px 18px; padding:11px 16px; border-top:1px solid var(--rule); background:var(--surface2); }
+.lg { display:flex; align-items:center; gap:6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink2); }
+.lg i { width:10px; height:10px; border-radius:50%; display:block; }
+
+section { margin-top:52px; }
+.shead { display:flex; align-items:baseline; gap:13px; border-bottom:1px solid var(--rule2);
+  padding-bottom:9px; margin-bottom:18px; flex-wrap:wrap; }
+.shead h2 { font-size:21px; font-weight:600; letter-spacing:-.015em; margin:0; }
+.shead .num { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink3); letter-spacing:.1em; }
+.note { font-family:'Source Serif 4',Georgia,serif; font-size:16.5px; line-height:1.65; color:var(--ink2); max-width:68ch; }
+.note + .note { margin-top:12px; }
+.note strong { color:var(--ink); font-weight:400; box-shadow:inset 0 -0.5em 0 color-mix(in srgb, var(--amber) 18%, transparent); }
+.tblwrap { overflow-x:auto; border:1px solid var(--rule2); background:var(--surface); box-shadow:var(--shadow); }
+table { border-collapse:collapse; width:100%; font-size:13px; }
+th,td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--rule); white-space:nowrap; }
+th { font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--ink3); font-weight:500; background:var(--surface2); }
+td.n { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; text-align:right; }
+td.p { font-family:'IBM Plex Mono',monospace; font-size:11px; white-space:normal; word-break:break-all; }
+tbody tr { cursor:pointer; }
+tbody tr:hover { background:var(--surface2); }
+.none { padding:40px 24px; font-family:'Source Serif 4',Georgia,serif; font-style:italic; color:var(--ink3); }
+footer { margin-top:60px; padding-top:20px; border-top:2px solid var(--ink); color:var(--ink3); }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Change frequency × coupling · from git history</p>
+  <h1>{{project}} Hotspots</h1>
+  <p class="dek">Every file placed by how often it has changed against how much of the codebase depends on it. <strong>The top-right corner is where refactoring pays for itself</strong> — code that churns constantly and that everything else leans on. Quiet code, however ugly, costs you nothing.</p>
+  <div class="statrow" id="statrow"></div>
+</header>
+
+<div class="bar" id="bar">
+  <label class="mono" style="font-size:11px;color:var(--ink3)">rank by
+    <select id="mode">
+      <option value="score">commits × dependents</option>
+      <option value="commits">commits</option>
+      <option value="deps">dependents</option>
+      <option value="lines">lines changed</option>
+      <option value="authors">authors</option>
+    </select>
+  </label>
+  <span class="sep"></span>
+  <button class="btn" id="tLabels">labels</button>
+  <button class="btn" id="tTests">include specs</button>
+  <span class="sep"></span>
+  <input id="q" type="search" placeholder="filter files…" aria-label="Filter files">
+  <button class="btn" id="reset">reset</button>
+</div>
+
+<div class="plate" data-fullscreen>
+  <div class="split" data-fs-grow>
+    <div class="chart" id="chart"></div>
+    <aside class="insp" id="insp"></aside>
+  </div>
+  <div class="legend" id="legend"></div>
+</div>
+
+<section>
+  <div class="shead"><span class="num">01</span><h2>Reading it</h2></div>
+  <p class="note" data-narr="hotspots"></p>
+  <p class="note">Horizontal is how many files import this one — change it and they all feel it. Vertical is how many commits have touched it. Dot size is total lines added and removed; colour runs from calm to hot on the product of the two axes.</p>
+  <p class="note"><strong>Neither axis is bad on its own.</strong> A widely-depended-on file that never changes is a stable foundation, exactly what you want. A file that churns constantly but nothing imports is cheap to get wrong. It is the corner where both are true that earns attention.</p>
+</section>
+
+<section>
+  <div class="shead"><span class="num">02</span><h2>Ranked</h2></div>
+  <div class="tblwrap">
+    <table id="tbl"><thead><tr><th>File</th><th>Kind</th><th style="text-align:right">Commits</th><th style="text-align:right">Dependents</th><th style="text-align:right">Lines</th><th style="text-align:right">Authors</th><th style="text-align:right">Score</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">03</span><h2>What this does not know</h2></div>
+  <p class="note">Commits are a proxy for churn, not a measure of it: a file touched once by a huge refactor scores lower than one nudged twenty times. Renames are followed only where git reports them in the same commit. And <strong>a high score is not a verdict</strong> — a core repository is <em>supposed</em> to be depended on, and may be changing often because the product is moving. The chart says where to look, not what to do.</p>
+  <p class="note" data-narr="caveats"></p>
+</section>
+
+<footer>
+  <p class="note" style="font-size:14px" data-narr="provenance"></p>
+</footer>
+
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById('data').textContent);
+var CH = D.churn || {}, META = D.churnMeta || { available:false };
+
+/* ---- assemble points ---- */
+var fanIn = {};
+D.fileLinks.forEach(function(l){ fanIn[l[1]] = (fanIn[l[1]] || 0) + 1; });
+var TIER_COLOR = ['--blue','--ink3','--violet','--amber','--green','--teal','--teal','--rose','--ink3','--ink3','--ink3'];
+
+var PTS = D.fileNodes.map(function(n, i){
+  var c = CH[n.f];
+  if (!c) return null;
+  var deps = fanIn[i] || 0;
+  return {
+    f:n.f, p:n.p, m:n.m, t:n.t, cls:n.cls, loc:n.loc,
+    commits:c.commits, deps:deps, lines:c.added + c.removed,
+    authors:c.authorCount || 0, last:c.last, first:c.first,
+    score:c.commits * (1 + deps)
+  };
+}).filter(Boolean);
+
+var TESTY = { spec:1, 'test-util':1, migration:1 };
+var state = { labels:false, tests:false, q:'', sel:null, mode:'score' };
+
+function visible(){
+  var q = state.q;
+  return PTS.filter(function(p){
+    if (!state.tests && TESTY[p.p]) return false;
+    if (q && (p.f + ' ' + (p.cls||'') + ' ' + p.p).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+}
+function metric(p){
+  return state.mode === 'commits' ? p.commits
+    : state.mode === 'deps' ? p.deps
+    : state.mode === 'lines' ? p.lines
+    : state.mode === 'authors' ? p.authors
+    : p.score;
+}
+
+/* ---- stats ---- */
+function renderStats(){
+  var v = visible();
+  var top = v.slice().sort(function(a,b){ return b.score - a.score; })[0];
+  document.getElementById('statrow').innerHTML = [
+    ['files with history', v.length, ''],
+    ['commits scanned', META.commits || 0, ''],
+    ['busiest file', top ? top.commits + ' commits' : '—', 'hot'],
+    ['most depended on', v.length ? Math.max.apply(null, v.map(function(p){ return p.deps; })) + ' importers' : '—', ''],
+    ['total lines moved', v.reduce(function(a,p){ return a + p.lines; }, 0).toLocaleString('en-US'), '']
+  ].map(function(s){ return '<div class="stat '+s[2]+'"><b>'+s[1]+'</b><span>'+s[0]+'</span></div>'; }).join('');
+}
+
+/* ---- scatter ---- */
+var W = 900, H = 520, PL = 62, PR = 26, PT = 22, PB = 52;
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// commits and fan-in are both heavily skewed, so compress with a log scale
+function sq(v, max){ return Math.log1p(v) / Math.log1p(max || 1); }
+
+function render(){
+  var v = visible();
+  var el = document.getElementById('chart');
+  if (!META.available || !v.length) {
+    el.innerHTML = '<p class="none">' + (META.available
+      ? 'No files match.'
+      : 'No git history available' + (META.reason ? ' — ' + esc(META.reason) : '') + '.') + '</p>';
+    return;
+  }
+  var maxC = Math.max.apply(null, v.map(function(p){ return p.commits; }));
+  var maxD = Math.max.apply(null, v.map(function(p){ return p.deps; }));
+  var maxL = Math.max.apply(null, v.map(function(p){ return p.lines; })) || 1;
+  var maxS = Math.max.apply(null, v.map(function(p){ return p.score; })) || 1;
+  var X = function(p){ return PL + sq(p.deps, maxD) * (W - PL - PR); };
+  var Y = function(p){ return H - PB - sq(p.commits, maxC) * (H - PT - PB); };
+
+  var s = [];
+  s.push('<svg class="sc" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Files plotted by change frequency against how many files depend on them">');
+
+  // the corner that matters
+  var qx = PL + (W - PL - PR) * 0.55, qy = PT;
+  s.push('<rect class="quad" x="'+qx+'" y="'+qy+'" width="'+(W - PR - qx)+'" height="'+(H - PB - qy)+'"/>');
+  s.push('<text class="quadlab" x="'+(W - PR - 8)+'" y="'+(PT + 14)+'" text-anchor="end">CHANGES OFTEN · WIDELY DEPENDED ON</text>');
+
+  // axes
+  s.push('<line class="axis" x1="'+PL+'" y1="'+(H-PB)+'" x2="'+(W-PR)+'" y2="'+(H-PB)+'"/>');
+  s.push('<line class="axis" x1="'+PL+'" y1="'+PT+'" x2="'+PL+'" y2="'+(H-PB)+'"/>');
+  [0,1,2,5,10,25,50,100,200].filter(function(t){ return t <= maxD; }).forEach(function(t){
+    var x = PL + sq(t, maxD) * (W - PL - PR);
+    s.push('<line class="gridl" x1="'+x+'" y1="'+PT+'" x2="'+x+'" y2="'+(H-PB)+'"/>');
+    s.push('<text class="axlab" x="'+x+'" y="'+(H-PB+16)+'" text-anchor="middle">'+t+'</text>');
+  });
+  [0,1,2,5,10,20,40,80,160].filter(function(t){ return t <= maxC; }).forEach(function(t){
+    var y = H - PB - sq(t, maxC) * (H - PT - PB);
+    s.push('<line class="gridl" x1="'+PL+'" y1="'+y+'" x2="'+(W-PR)+'" y2="'+y+'"/>');
+    s.push('<text class="axlab" x="'+(PL-8)+'" y="'+(y+3.5)+'" text-anchor="end">'+t+'</text>');
+  });
+  s.push('<text class="axtitle" x="'+((PL+W-PR)/2)+'" y="'+(H-10)+'" text-anchor="middle">FILES THAT IMPORT THIS ONE →</text>');
+  s.push('<text class="axtitle" transform="translate(15,'+((PT+H-PB)/2)+') rotate(-90)" text-anchor="middle">COMMITS →</text>');
+
+  // points, biggest last so they sit on top
+  v.slice().sort(function(a,b){ return a.score - b.score; }).forEach(function(p){
+    var r = 3 + Math.sqrt(p.lines / maxL) * 12;
+    var heat = p.score / maxS;
+    var col = heat > 0.45 ? 'var(--hot)' : heat > 0.18 ? 'var(--warm)' : 'var(--calm)';
+    var dim = state.sel && state.sel !== p.f;
+    s.push('<g class="pt'+(dim?' dim':'')+(state.sel===p.f?' sel':'')+'" data-f="'+esc(p.f)+'" tabindex="0" role="button" aria-label="'+esc(p.f)+'">');
+    s.push('<circle cx="'+X(p).toFixed(1)+'" cy="'+Y(p).toFixed(1)+'" r="'+r.toFixed(1)+'" fill="'+col+'" fill-opacity=".62"/>');
+    s.push('<title>'+esc(p.f)+' — '+p.commits+' commits, '+p.deps+' dependents, '+p.lines+' lines</title>');
+    s.push('</g>');
+  });
+
+  // label only the ones worth naming, so the corner stays readable
+  var named = v.slice().sort(function(a,b){ return b.score - a.score; }).slice(0, state.labels ? 22 : 6);
+  named.forEach(function(p){
+    var base = p.f.split('/').pop().replace(/\.ts$/, '');
+    var txt = base.length > 26 ? base.slice(0, 25) + '…' : base;
+    // flip the label inward near the right edge so it never runs off
+    var x = X(p), flip = x > W - PR - txt.length * 5.6;
+    s.push('<text class="ptlab" x="'+((flip ? x - 9 : x + 9)).toFixed(1)+'" y="'+(Y(p)-8).toFixed(1)+'"'+(flip?' text-anchor="end"':'')+'>'+esc(txt)+'</text>');
+  });
+
+  s.push('</svg>');
+  el.innerHTML = s.join('');
+  el.querySelectorAll('.pt').forEach(function(g){
+    var f = g.getAttribute('data-f');
+    g.addEventListener('click', function(){ select(state.sel === f ? null : f); });
+    g.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); g.click(); } });
+  });
+}
+
+function fmtDate(ms){ return ms ? new Date(ms).toISOString().slice(0,10) : '—'; }
+function inspect(f){
+  var el = document.getElementById('insp');
+  var p = PTS.filter(function(x){ return x.f === f; })[0];
+  if (!p) {
+    el.innerHTML = '<p class="empty">Click a dot, or a row in the table below. Bigger and hotter means it changes often and a lot depends on it.</p>';
+    return;
+  }
+  var days = p.first && p.last ? Math.max(1, Math.round((p.last - p.first) / 86400000)) : 0;
+  el.innerHTML =
+    '<h3>' + esc(p.cls || p.f.split('/').pop()) + '</h3>' +
+    '<p class="sub">' + esc(p.f) + '</p>' +
+    '<ul class="kv">' +
+      '<li>kind<b>' + esc(p.p) + '</b></li>' +
+      '<li>module<b>' + esc(p.m) + '</b></li>' +
+      '<li>lines in file<b>' + p.loc + '</b></li>' +
+    '</ul>' +
+    '<p class="ilab">History</p><ul class="kv">' +
+      '<li>commits<b>' + p.commits + '</b></li>' +
+      '<li>lines added + removed<b>' + p.lines.toLocaleString('en-US') + '</b></li>' +
+      '<li>authors<b>' + p.authors + '</b></li>' +
+      '<li>first touched<b>' + fmtDate(p.first) + '</b></li>' +
+      '<li>last touched<b>' + fmtDate(p.last) + '</b></li>' +
+      (days ? '<li>active span<b>' + days + ' days</b></li>' : '') +
+    '</ul>' +
+    '<p class="ilab">Coupling</p><ul class="kv">' +
+      '<li>files importing this<b>' + p.deps + '</b></li>' +
+      '<li>score<b>' + p.score + '</b></li>' +
+    '</ul>';
+  el.scrollTop = 0;
+}
+function select(f){ state.sel = f; render(); inspect(f); renderTable(); }
+
+function renderTable(){
+  var v = visible().slice().sort(function(a,b){ return metric(b) - metric(a); }).slice(0, 40);
+  document.querySelector('#tbl tbody').innerHTML = v.map(function(p){
+    return '<tr data-f="'+esc(p.f)+'"'+(state.sel===p.f?' style="background:var(--surface2)"':'')+'>' +
+      '<td class="p">'+esc(p.f)+'</td><td class="p" style="color:var(--ink3)">'+esc(p.p)+'</td>' +
+      '<td class="n">'+p.commits+'</td><td class="n">'+p.deps+'</td>' +
+      '<td class="n">'+p.lines.toLocaleString('en-US')+'</td><td class="n">'+p.authors+'</td>' +
+      '<td class="n" style="color:var(--hot)">'+p.score+'</td></tr>';
+  }).join('');
+  document.querySelectorAll('#tbl tbody tr').forEach(function(tr){
+    tr.addEventListener('click', function(){
+      var f = tr.getAttribute('data-f');
+      select(state.sel === f ? null : f);
+    });
+  });
+}
+
+document.getElementById('legend').innerHTML =
+  '<span class="lg"><i style="background:var(--hot)"></i>changes often and widely depended on</span>' +
+  '<span class="lg"><i style="background:var(--warm)"></i>moderate</span>' +
+  '<span class="lg"><i style="background:var(--calm)"></i>quiet</span>' +
+  '<span class="lg" style="color:var(--ink3)">dot size = lines added + removed · both axes are log scaled</span>';
+
+function tog(id, key){
+  var b = document.getElementById(id);
+  b.addEventListener('click', function(){ state[key] = !state[key]; b.classList.toggle('on', state[key]); render(); renderStats(); renderTable(); });
+}
+tog('tLabels','labels'); tog('tTests','tests');
+document.getElementById('mode').addEventListener('change', function(e){ state.mode = e.target.value; renderTable(); });
+document.getElementById('q').addEventListener('input', function(e){ state.q = e.target.value.trim().toLowerCase(); render(); renderStats(); renderTable(); });
+document.getElementById('reset').addEventListener('click', function(){
+  state = { labels:false, tests:false, q:'', sel:null, mode:'score' };
+  document.getElementById('q').value = '';
+  document.getElementById('mode').value = 'score';
+  document.getElementById('tLabels').classList.remove('on');
+  document.getElementById('tTests').classList.remove('on');
+  render(); renderStats(); renderTable(); inspect(null);
+});
+
+renderStats(); render(); renderTable(); inspect(null);
+window.__hotspots = { PTS:PTS, state:state, visible:visible };
+})();
+</script>

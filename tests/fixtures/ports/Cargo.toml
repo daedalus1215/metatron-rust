@@ -1,0 +1,6 @@
+[package]
+name = "ports"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+rusqlite = "0.31"

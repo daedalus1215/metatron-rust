@@ -1,0 +1,26 @@
+[package]
+name = "metatron"
+version = "0.1.0"
+edition = "2021"
+description = "Compile a Rust crate into a measured architecture model, then check it against patterns-rust."
+license = "MIT"
+
+[lib]
+name = "metatron"
+path = "src/lib.rs"
+
+[[bin]]
+name = "metatron"
+path = "src/main.rs"
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits", "visit", "parsing", "printing"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+regex = "1"
+sha1 = "0.10"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
