@@ -43,7 +43,7 @@ rule in the glossary is convention.** That is the gap this tool exists to fill,
 and the tool says so out loud on every run — arioch, 2026-09-27:
 
 ```
-enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 8
                        ^ no rule is enforced by anything but this tool
 ```
 
@@ -141,8 +141,8 @@ could do.
 
 ```
 metatron check · arioch
-  rules           22     upheld 0 · violated 3 · unevaluable 19 · pass 0
-  enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+  rules           24     upheld 0 · violated 4 · unevaluable 20 · pass 0
+  enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 8
                          ^ no rule is enforced by anything but this tool
 
   violations       3     new 3 · known 0 · fixed 0
@@ -327,14 +327,17 @@ in `domain/use_cases/` and reports the ones the classifier declined.
 ### The enforcement line
 
 ```
-enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 8
                        ^ no rule is enforced by anything but this tool
 ```
 
 Zero, because both target crates are `crate-graph.md` Option A. The four
-numbers are a partition of the 22 rules, each counted once by whoever enforces
-it: a `Delegated` rule is counted under the tool that took it, not under this
-one.
+numbers are a partition of the rules, each counted once by whoever enforces it: a
+`Delegated` rule is counted under the tool that took it, not under this one.
+
+This said 22 rules and `advisory 6` when it was written. Spec 08 added two, both
+advisory, and the line moved without anything about the argument changing —
+which is the point of counting by predicate rather than by hand.
 
 Setting `crate_graph = "B"` in `metatron.toml` moves the three layer rules to
 `tier: compiler` and `status: delegated`, and the line becomes

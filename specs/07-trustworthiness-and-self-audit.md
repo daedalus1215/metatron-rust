@@ -407,3 +407,103 @@ the coverage problem, and it is caught by the same assertion.
   `outside the ratchet` are derived from one predicate, and a test asserts the
   three agree for every rule.
 - The whole suite still passes, and no test is ignored to make it pass.
+
+## Implementation notes (2026-09-27)
+
+Twenty-four commits, each one a single decision with its test beside it. The
+audit in the Context above produced eight findings; this records what each one
+turned into.
+
+### "It cannot see most crates"
+
+The scanner resolved one entry point and stopped. It now walks
+`src/main.rs`, `src/lib.rs`, every `src/bin/*.rs`, the package's own declared
+targets, and a crate that names itself. Declared targets are read from the
+manifest rather than assumed, so a `[lib]` at `crates/thing/src/lib.rs` is
+opened; a declared path that does not exist is a `MissingTarget` diagnostic
+rather than a silent skip. Workspace members each get their own root, and a
+virtual manifest that names no package is a tool error, not an empty scan.
+
+`Stats.targets` and the target names on it exist so a caller can see what was
+opened. The same decision fixed the path convention: every file in the model is
+`Model.root`-relative, so a self-scan reports `rules.rs` and `scan/body.rs` when
+the root is `src/`, and no absolute path is ever serialised.
+
+Fixtures: `dual/`, `ws-package/`, `ws-virtual/`.
+
+### "It cannot be told apart from a clean bill of health"
+
+One function decides what an `Err` means, and every subcommand goes through it:
+`0` answered, `1` regressed, `2` broke. The half of the CLI that was exiting 1 on
+a broken path is now exiting 2, and `tests/cli.rs` runs all six subcommands
+against a nonexistent path to keep it that way.
+
+### "It reports a green check on a blind scan"
+
+`assert_coverage_at_least` and `assert_no_unevaluable` were already written and
+already tested; no flag called them. `check` now takes `--min-coverage` and
+`--require-evaluable`, both defaulting to off, because a gate nobody asked for is
+a gate that will be turned off by whoever it inconveniences. The `PASS` line
+names the baseline it compared against, the coverage it judged on, how many rules
+had no premise, and the narrowing `--rule` applied — so a green line cannot be
+read without its qualifications.
+
+### "It can emit a broken page"
+
+`</script>` and `<!--` inside a serialised payload now escape to `<` sequences.
+`escape/`, a fixture whose symbol names carry both, renders and asserts the page
+contains no raw terminator.
+
+### The three smaller ones
+
+- `crossDomain` is gone from the atlas payload and the template, rather than
+  shipped as a hardcoded empty. The template's crossings section now says the
+  data is absent.
+- `CfgExcluded` is constructed, once per file that carries `#[cfg]` items, so the
+  model admits that some of it may not compile. `cfgd/` is the fixture.
+- `panic-in-domain` was delegating to a `clippy.toml` that does not exist, and
+  clippy's `unwrap_used` is crate-wide, so it cannot be denied per module in any
+  case. The scanner now records every `unwrap`/`expect`/`unwrap_err`/`expect_err`
+  call with its line onto the symbol it appears in, and the rule decides from
+  that. Against `ports/` it passes; against `panics/` it fails with the two
+  call sites named; against this repository it reports itself unevaluable,
+  because a tool with no classified domain has no domain to panic in. Its tier
+  stays `clippy` — that is still where the lint belongs — but the enforcement
+  line attributes it to metatron, which is what now holds the line.
+
+### The drift
+
+`specs/01` no longer claims the model carries `coverage`, `findings`, `violations`
+or `churn`; it carries the scan facts and the rest is computed per run, and the
+spec says which is which. `specs/04` renders one run one way. `specs/02` no
+longer defers to a logical-coupling spec that does not exist. The status table in
+`README.md` and `specs/README.md` is checked against the front matter by
+`tests/docs.rs`, and the sample `scan` output in the README is a real run,
+executed by a test that skips when `../arioch` is absent.
+
+### Measured
+
+- 22 rules, 16 of which gate. `tests/rules.rs` pins every rule ID on both sides
+  of that line, so a new rule cannot be added without choosing.
+- `Scorecard::enforcement` is a disjoint partition:
+  `compiler + metatron + clippy + advisory == findings.len()`, asserted in both
+  directions. The partition existed and summed wrong, because a `Delegated` rule
+  was counted as clippy's when clippy was not enforcing it.
+- 125 tests across 8 binaries, 0 ignored. `cargo clippy --all-targets` is clean.
+- The sample in `README.md` is what this binary prints on `../arioch`, and
+  `tests/docs.rs` re-runs the scan and requires the sample to appear verbatim in
+  its output. As of 2026-09-27 that is 166 symbols over 8 files, coverage 1/83
+  (1.2%) — one symbol in eighty-three matches a pattern, which is the number the
+  whole toolchain of rules is standing on — and 24 rules, of which one is
+  decidable on that crate. The exact figures move whenever arioch does, which is
+  why the assertion is "these lines are a real run" rather than "these lines are
+  correct": a sample that is checked for provenance cannot go stale, and a sample
+  that is checked for equality is a test that fails every time somebody works.
+
+### What this spec did not do
+
+`--allow-new` stays a plain number. There is still no way to ask "what is my
+largest new violation" or "how did this run compare to the last one"; the
+baseline is a set of known-accepted instances and nothing more. Whether the
+churn the model already computes should become a bound is spec 08's question,
+and it is deliberately not answered here.

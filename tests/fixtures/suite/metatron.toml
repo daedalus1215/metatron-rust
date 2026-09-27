@@ -1,0 +1,20 @@
+# The layering rules only have premises when something is classified, so this
+# fixture classifies its domain and gives it an application module for the test
+# target to reach across into. Without this, "a test target changed nothing"
+# would be true because nothing was ever evaluated.
+extends = "patterns-rust"
+
+[[add_pattern]]
+id = "domain-thing"
+layer = "domain"
+symbol = { kind = "fn", name = "^(log|helper)$" }
+
+[[add_pattern]]
+id = "activity-store"
+layer = "domain"
+symbol = { kind = "trait", name = "^ActivityStore$" }
+
+[[add_pattern]]
+id = "app-entry"
+layer = "application"
+symbol = { kind = "fn", name = "^(start|default_store)$" }

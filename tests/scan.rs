@@ -555,3 +555,90 @@ fn a_file_with_no_cfg_produces_no_such_diagnostic() {
         m.diagnostics
     );
 }
+
+// ------------------------------------------------- a suite the scanner can see
+
+#[test]
+fn a_crates_tests_are_part_of_the_crate() {
+    let m = fixture("suite");
+
+    // Two discovered: `acceptance.rs` and `nested/main.rs`.
+    let tests: Vec<_> = m
+        .stats
+        .targets
+        .iter()
+        .filter(|t| t.kind == "test")
+        .map(|t| t.name.as_str())
+        .collect();
+    assert_eq!(tests, ["acceptance", "nested"], "test targets: {tests:?}");
+
+    // Every symbol in a test target is test code, annotated or not: the target
+    // is the premise, not the `#[test]` attribute. The paths carry the `../`
+    // the model uses for anything outside `src/`, so a reader can see that
+    // these files are not part of the scanned root.
+    let in_tests: Vec<_> = m
+        .symbols
+        .iter()
+        .filter(|s| s.file.starts_with("../tests/"))
+        .collect();
+    assert!(!in_tests.is_empty(), "the suite produced no symbols at all");
+    for s in &in_tests {
+        assert!(s.is_test, "{} is in tests/ but not marked", s.id);
+    }
+    assert!(in_tests.iter().any(|s| s.id.contains("the_log_records")));
+
+    // And the source under `src/` is not test code. A crate with a test target
+    // is not itself a test.
+    let log = m
+        .symbols
+        .iter()
+        .find(|s| s.id.ends_with("::log"))
+        .expect("log");
+    assert!(!log.is_test, "{} is src code marked as test", log.id);
+}
+
+#[test]
+fn a_declared_test_target_is_scanned_and_a_missing_one_is_named() {
+    let m = fixture("declared-test");
+
+    let names: Vec<_> = m
+        .stats
+        .targets
+        .iter()
+        .filter(|t| t.kind == "test")
+        .map(|t| t.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"outside"),
+        "declared test not scanned: {names:?}"
+    );
+
+    // The declared path pointed outside `tests/`, and was scanned anyway: a
+    // target cargo would build is a target this scanner opens.
+    let outside = m
+        .stats
+        .targets
+        .iter()
+        .find(|t| t.name == "outside")
+        .expect("the declared target");
+    assert_eq!(outside.file, "extra.rs", "a declared path under src/");
+    let sym = m
+        .symbols
+        .iter()
+        .find(|s| s.id.contains("declared_helper"))
+        .expect("symbol from the declared test target");
+    assert!(sym.is_test, "{} is a test target but not marked", sym.id);
+
+    // A declared test with no file is named, not dropped.
+    let skipped = m
+        .diagnostics
+        .iter()
+        .find(|d| d.detail.contains("test `ghost`"))
+        .expect("a declared test whose path does not exist must be named");
+    assert_eq!(skipped.kind, DiagnosticKind::TargetSkipped);
+    assert!(
+        skipped.detail.contains("does not exist"),
+        "the diagnostic must say why: {}",
+        skipped.detail
+    );
+}

@@ -8,7 +8,7 @@
 //! "architecture regressed" and `2` as "the tool is broken" cannot tell a real
 //! regression from a typo in a path if the tool reports both as `1`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const NO_ANSWER: i32 = 2;
@@ -24,6 +24,71 @@ fn run(args: &[&str]) -> std::process::Output {
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("the metatron binary should be runnable")
+}
+
+/// A fixture copied into a temporary git repository with enough history for the
+/// churn rule to have premises.
+///
+/// Spec 08 added `churn-concentration`, whose premise is git history, so a plain
+/// fixture directory now always leaves one decidable rule unevaluable — which
+/// makes `--require-evaluable` fail there for a reason that has nothing to do
+/// with the flag. These tests are about the flag, so they get a crate that can
+/// answer it. `OnceLock` because the repository is built once and the tests
+/// that use it do not write to it.
+fn repoed(fixture: &str) -> &'static Path {
+    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(fixture);
+        let dst = std::env::temp_dir().join(format!("metatron-repoed-{fixture}"));
+        let _ = std::fs::remove_dir_all(&dst);
+        copy_tree(&src, &dst);
+
+        let git = |args: &[&str]| {
+            let ok = Command::new("git")
+                .args(args)
+                .current_dir(&dst)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            assert!(ok, "git {args:?} failed in {dst:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "t"]);
+        git(&["add", "-A"]);
+        // 25 commits: `Churn::MIN_COMMITS` is 20, and the rule says "not enough
+        // history" below that, so a fixture with fewer would leave the very rule
+        // these tests are about unevaluable.
+        for i in 0..25 {
+            // Under `src/`, because that is the model's root and therefore the
+            // pathspec churn is measured against. Commits at the crate root
+            // would leave the rule correctly reporting that nothing under
+            // `src/` has ever changed.
+            std::fs::write(
+                dst.join("src").join(format!("history{i}.txt")),
+                format!("commit {i}\n"),
+            )
+            .expect("write");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("commit {i}")]);
+        }
+        dst
+    })
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("mkdir");
+    for e in std::fs::read_dir(from).expect("read_dir") {
+        let e = e.expect("entry");
+        let p = e.path();
+        if p.is_dir() {
+            copy_tree(&p, &to.join(e.file_name()));
+        } else {
+            std::fs::copy(&p, to.join(e.file_name())).expect("copy");
+        }
+    }
 }
 
 fn code(args: &[&str]) -> i32 {
@@ -233,7 +298,8 @@ fn a_heuristic_that_cannot_decide_does_not_trip_the_flag() {
     // A heuristic is honest about being unable to decide, and never gates. A
     // flag that failed on those would be unusable on any real crate, and would
     // push people to turn it off.
-    let out = run(&["check", "--require-evaluable", "tests/fixtures/ports"]);
+    let crate_path = repoed("ports");
+    let out = run(&["check", "--require-evaluable", crate_path.to_str().unwrap()]);
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -258,7 +324,7 @@ fn the_evaluable_flag_applies_to_the_json_path_too() {
             "check",
             "--json",
             "--require-evaluable",
-            "tests/fixtures/ports"
+            repoed("ports").to_str().unwrap()
         ]),
         0
     );
@@ -337,8 +403,9 @@ fn the_printed_exclusions_are_exactly_the_rules_that_do_not_gate() {
             .join(fixture);
         let report = metatron::scan(&dir).unwrap();
         let cfg = metatron::classify::Config::load(&dir).unwrap();
-        let checked =
-            metatron::rules::check(&report, &cfg, &metatron::classify::classify(&report, &cfg));
+        let classified = metatron::classify::classify(&report, &cfg);
+        let churn = metatron::churn::Churn::measure(&dir, &cfg.root, &report);
+        let checked = metatron::rules::check(&report, &cfg, &classified, &churn);
 
         let not_gating: Vec<&str> = checked
             .findings

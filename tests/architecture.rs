@@ -25,7 +25,11 @@ fn every_rule_can_actually_be_evaluated() {
     // The check that stops a green run from meaning nothing: a rule whose
     // premise is absent is not passing, and a suite that never asks will
     // not notice when a refactor deletes the last port.
-    metatron::check(conforming()).assert_no_unevaluable();
+    // `churn-concentration` reads git history, and a fixture directory has
+    // none — its absence is a property of the fixture, not of the rule. It is
+    // evaluated against this repository, which does have history, in
+    // `tests/churn.rs::the_churn_rule_is_decidable_against_a_real_repository`.
+    metatron::check(conforming()).assert_no_unevaluable_except(&["churn-concentration"]);
 }
 
 #[test]

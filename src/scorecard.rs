@@ -12,6 +12,7 @@
 //! Three counts and an exposure line instead.
 
 use crate::baseline::{self, Baseline, Diff};
+use crate::churn::Churn;
 use crate::classify::{self, Classified, Config};
 use crate::cohesion::{self, CohesionReport, Verdict};
 use crate::model::Model;
@@ -54,13 +55,18 @@ pub struct Scorecard {
     pub baseline: Baseline,
     pub diff: Diff,
     pub had_baseline: bool,
+    /// Measured once per run and shared by the view and the rules, so a churn
+    /// number in a report and a churn number on a chart cannot be two
+    /// measurements of the same repository.
+    pub churn: Churn,
 }
 
 pub fn build(dir: &Path) -> Result<Scorecard> {
     let model = crate::scan(dir)?;
     let config = Config::load(dir)?;
     let classified = classify::classify(&model, &config);
-    let report = rules::check(&model, &config, &classified);
+    let churn = Churn::measure(dir, &config.root, &model);
+    let report = rules::check(&model, &config, &classified, &churn);
     let cohesion = cohesion::analyse(&model);
     let had_baseline = Baseline::exists(dir);
     let baseline = Baseline::load(dir)?;
@@ -75,6 +81,7 @@ pub fn build(dir: &Path) -> Result<Scorecard> {
         baseline,
         diff,
         had_baseline,
+        churn,
     })
 }
 
@@ -242,6 +249,33 @@ impl Scorecard {
 
     /// Assert no rule silently reports a pass it did not earn.
     #[track_caller]
+    /// The same guard, for the rules whose premise is the repository's history
+    /// rather than the crate's shape.
+    ///
+    /// A fixture directory is not a repository, so no churn rule can be
+    /// evaluated on one — the guard would fail for a reason that says nothing
+    /// about the rule. Each exemption is therefore a debt with a named owner:
+    /// the rule is evaluated against this repository instead, in
+    /// `tests/churn.rs`, and this list is where a reader finds out which rules
+    /// are not covered by the fixture sweep.
+    pub fn assert_no_unevaluable_except(&self, exempt: &[&str]) {
+        let dark: Vec<&str> = self
+            .report
+            .findings
+            .iter()
+            .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
+            .map(|f| f.id)
+            .filter(|id| !exempt.contains(id))
+            .collect();
+        assert!(
+            dark.is_empty(),
+            "metatron: {} decidable rule(s) could not be evaluated: {}\n\
+             Their premises do not exist in this crate; they are not passing.",
+            dark.len(),
+            dark.join(", ")
+        );
+    }
+
     pub fn assert_no_unevaluable(&self) {
         let dark: Vec<&str> = self
             .report

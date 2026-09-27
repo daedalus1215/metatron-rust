@@ -1,0 +1,12 @@
+[package]
+name = "declared-test"
+version = "0.0.0"
+edition = "2021"
+
+[[test]]
+name = "outside"
+path = "src/extra.rs"
+
+[[test]]
+name = "ghost"
+path = "tests/nowhere.rs"

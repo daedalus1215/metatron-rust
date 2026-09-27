@@ -15,6 +15,7 @@
 //!   CI on a guess is switched off within a week, and takes the decidable
 //!   rules with it.
 
+use crate::churn::Churn;
 use crate::classify::{Classified, Config};
 use crate::model::{EdgeKind, EdgeTarget, Model, Symbol, SymbolKind};
 use serde::{Deserialize, Serialize};
@@ -310,7 +311,7 @@ fn matches_any(path: &str, group: &[String]) -> bool {
 
 // ------------------------------------------------------------------- entry
 
-pub fn check(m: &Model, cfg: &Config, c: &Classified) -> Report {
+pub fn check(m: &Model, cfg: &Config, c: &Classified, churn: &Churn) -> Report {
     let x = Ctx::new(m, cfg, c);
     let findings = vec![
         domain_no_io(&x),
@@ -342,6 +343,11 @@ pub fn check(m: &Model, cfg: &Config, c: &Classified) -> Report {
         mixed_layer_module(&x),
         dependency_inversion(&x),
         panic_in_domain(&x),
+        // Spec 08. Both are decidable on premises the model and the repository
+        // carry, and both are advisory: the premise is knowable, the judgment
+        // is not, and a gate nobody believes is a gate that gets disabled.
+        untested_port(&x),
+        churn_concentration(&x, churn),
         // Heuristics. None of these gate.
         store_decides(&x),
         handler_decides(&x),
@@ -1281,5 +1287,186 @@ fn renders_off_store(x: &Ctx) -> Finding {
             out.push(x.inst(s, c, format!("`{}` reaches through `{c}`", s.name)));
         }
     }
+    f.with(out)
+}
+/// A port nothing in the test suite calls.
+///
+/// The claim this rule can make is narrower than the one its name suggests, and
+/// the reason string is the contract: **no test in the scanned test targets
+/// calls or implements this port**. That is decidable from the model's call
+/// edges and impl blocks. "Untested" is not — a port can be exercised through
+/// its caller, through a trait object, or by hand — so the word is not used.
+///
+/// Advisory, deliberately. The premise is knowable and the judgment is not, and
+/// a gate that fires on every port of a crate whose suite this tool did not scan
+/// is a gate that gets switched off within a week. The number is in every
+/// report, the baseline and `check --all` either way; promoting it to a gate is
+/// a one-line edit here and in spec 08 once a baseline exists.
+fn untested_port(x: &Ctx) -> Finding {
+    let f = Finding::new(
+        "untested-port",
+        "a port is called by something in the test suite",
+        "specs/08-test-presence-and-churn-bounds.md",
+        Tier::Convention,
+        Kind::Decidable,
+        false,
+    );
+
+    let ports: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Trait && x.pattern(&s.id) == Some("port"))
+            .collect();
+    if ports.is_empty() {
+        return f.unevaluable("no port trait exists");
+    }
+
+    // The absence that matters: a suite this scanner never opened. Reporting 40
+    // findings because `tests/` was invisible is the confident wrong answer
+    // spec 07 is about, so it is `Unevaluable` with the count that would have
+    // made it evaluable.
+    let targets =
+        x.m.stats
+            .targets
+            .iter()
+            .filter(|t| t.kind == "test")
+            .count();
+    if targets == 0 {
+        return f.unevaluable(
+            "no test target was scanned, so nothing can be said about what a test calls",
+        );
+    }
+
+    // What a test reaches, and this is the part that took two attempts to get
+    // right. A `Call` edge from a test to the port is the obvious premise and
+    // it is not the main one: the ordinary way a test suite touches a port is by
+    // *implementing* it — a fake, a stub, an in-memory double — and an
+    // `impl` block is not a call. A premise that counted only calls reported
+    // every port of a crate whose suite is entirely fakes as untested, which is
+    // the confident wrong answer this project keeps refusing to print. So a port
+    // counts as exercised when a test calls it *or* when a test implements it.
+    //
+    // `ImplBinding` already carries `is_test` and the resolved `trait_id`, so
+    // this is a read rather than a resolution of its own.
+    let mut exercised: BTreeSet<&str> =
+        x.m.edges
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Call)
+            .filter(|e| x.m.symbols.iter().any(|s| s.id == e.from && s.is_test))
+            .filter_map(|e| match &e.to {
+                EdgeTarget::Local { id } => Some(id.as_str()),
+                EdgeTarget::Extern { .. } => None,
+            })
+            .collect();
+    for b in x.m.impls.iter().filter(|b| b.is_test) {
+        if let Some(id) = b.trait_id.as_deref() {
+            exercised.insert(id);
+        }
+    }
+
+    let out: Vec<Instance> = ports
+        .iter()
+        .filter(|p| !exercised.contains(p.id.as_str()))
+        .map(|p| Instance {
+            from: p.id.clone(),
+            to: String::new(),
+            file: p.file.clone(),
+            line: p.line,
+            detail: format!(
+                "no test in the {targets} scanned test target(s) calls or \
+                 implements this port"
+            ),
+        })
+        .collect();
+    f.with(out)
+}
+
+/// A file that holds both a disproportionate share of the crate's churn and a
+/// disproportionate share of its dependents.
+///
+/// Two premises before it says anything, both from spec 08:
+///
+/// 1. Enough history to mean something. A repository with four commits has no
+///    hot files, and a rule that disagrees is measuring the author's first week.
+/// 2. A relative position, never an absolute count. `commits > 10` is a claim
+///    about this project's idea of a busy file, not a fact about the scanned
+///    crate; a decile is the same measurement in a two-week-old repo and a
+///    two-year-old one.
+///
+/// Advisory for the reason the view's own caption gives: churn correlates with
+/// being important, and a build that fails on the file someone is actively
+/// working on teaches the team to ignore the tool.
+fn churn_concentration(x: &Ctx, churn: &Churn) -> Finding {
+    let f = Finding::new(
+        "churn-concentration",
+        "a file that churns and that everything leans on",
+        "specs/08-test-presence-and-churn-bounds.md",
+        Tier::Convention,
+        Kind::Decidable,
+        false,
+    );
+
+    if !churn.available {
+        return f.unevaluable(&format!("churn was not measured: {}", churn.reason));
+    }
+    if !churn.enough_history() {
+        return f.unevaluable(&format!(
+            "{} commit(s) in the window; {} are needed before churn ranks anything",
+            churn.total_commits(),
+            Churn::MIN_COMMITS
+        ));
+    }
+
+    let total: usize = churn.files.values().map(|c| c.commits).sum();
+    let hot = churn.top_decile();
+    let depended_on: BTreeSet<String> = {
+        // The same relative test on the other axis, computed from the same
+        // measurement: a file that changes constantly and that nothing imports
+        // is cheap to get wrong, and the view says so in as many words.
+        let max = churn.files.values().map(|c| c.deps).max().unwrap_or(0);
+        churn
+            .files
+            .iter()
+            .filter(|(_, c)| max > 0 && c.deps * 10 >= max)
+            .map(|(file, _)| file.clone())
+            .collect()
+    };
+
+    let out: Vec<Instance> = churn
+        .files
+        .iter()
+        .filter(|(file, _)| hot.contains(*file) && depended_on.contains(*file))
+        .map(|(file, c)| {
+            let share = if total == 0 {
+                0.0
+            } else {
+                100.0 * c.commits as f64 / total as f64
+            };
+            let module = x.m.modules.iter().find(|md| &md.file == file);
+            let line = module
+                .and_then(|md| {
+                    x.m.symbols
+                        .iter()
+                        .find(|s| s.module == md.id && !s.is_test)
+                        .map(|s| s.line)
+                })
+                .unwrap_or(1);
+            Instance {
+                from: file.clone(),
+                to: String::new(),
+                file: file.clone(),
+                line,
+                detail: format!(
+                    "this file holds {share:.0}% of the crate's churn and {} of its {} \
+                     committed files lean on it — top decile on both, over {} commit(s) \
+                     since {}",
+                    c.deps,
+                    churn.window.files,
+                    churn.total_commits(),
+                    churn.window.since
+                ),
+            }
+        })
+        .collect();
     f.with(out)
 }

@@ -1,14 +1,28 @@
 //! Acceptance tests for `specs/04-conformance-rules.md`.
 
 use metatron::classify::{classify, Config};
+use metatron::model::{Model, Symbol};
 use metatron::rules::{check, Finding, Kind, Report, Status, Tier};
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 fn run(dir: PathBuf) -> Report {
     let m = metatron::scan(&dir).expect("scan failed");
     let cfg = Config::load(&dir).expect("config failed");
     let c = classify(&m, &cfg);
-    check(&m, &cfg, &c)
+    let churn = metatron::churn::Churn::measure(&dir, &cfg.root, &m);
+    check(&m, &cfg, &c, &churn)
+}
+
+/// Churn for a model, measured against the crate it came from. Fixtures are
+/// not in git, so this is almost always a stated absence — which is the point:
+/// a churn rule over a fixture is `Unevaluable` and says why, rather than
+/// reporting that the fixture has no hot files.
+fn churn_of(m: &Model, cfg: &Config) -> metatron::churn::Churn {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(m.project.replace('_', "-"));
+    metatron::churn::Churn::measure(&dir, &cfg.root, m)
 }
 
 fn fixture(name: &str) -> Report {
@@ -57,6 +71,10 @@ fn every_decidable_rule_evaluates_against_the_conforming_crate() {
         .iter()
         .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
         .map(|f| f.id)
+        // Same exemption as `tests/architecture.rs`, same reason: this rule's
+        // premise is git history and a fixture directory has none. It is
+        // evaluated against this repository in `tests/churn.rs`.
+        .filter(|id| *id != "churn-concentration")
         .collect();
     assert!(
         dark.is_empty(),
@@ -71,7 +89,22 @@ fn the_inversion_arrow_is_counted_as_the_architecture_working() {
     let r = fixture("ports");
     let f = rule(&r, "dependency-inversion");
     assert_eq!(f.status, Status::Upheld);
-    assert_eq!(f.instances.len(), 5, "{:?}", f.instances);
+
+    // Five in production code and two in `tests/clock.rs`, which fakes the clock
+    // and the note store. A test fake is a real inversion and the rule counts
+    // it — the split is asserted rather than folded into one number, because a
+    // bare 7 would hide the fact that two of them are test code and a reader
+    // would have to re-derive that to know what the rule is measuring.
+    let (fakes, production): (Vec<_>, Vec<_>) = f
+        .instances
+        .iter()
+        .partition(|i| i.file.starts_with("../tests/"));
+    assert_eq!(production.len(), 5, "{production:?}");
+    assert_eq!(fakes.len(), 2, "{fakes:?}");
+    assert!(
+        fakes.iter().all(|i| i.to.contains("ports::")),
+        "a test fake inverts a domain port: {fakes:?}"
+    );
 }
 
 // ------------------------------------------------------- the leaky crate
@@ -297,12 +330,12 @@ fn the_workspace_split_hands_three_rules_to_the_compiler() {
     let m = metatron::scan(&dir).unwrap();
     let mut cfg = Config::load(&dir).unwrap();
 
-    let a = check(&m, &cfg, &classify(&m, &cfg));
+    let a = check(&m, &cfg, &classify(&m, &cfg), &churn_of(&m, &cfg));
     assert_eq!(a.compiler_enforced, 0);
     assert_eq!(rule(&a, "domain-no-io").status, Status::Violated);
 
     cfg.crate_graph = "B".into();
-    let b = check(&m, &cfg, &classify(&m, &cfg));
+    let b = check(&m, &cfg, &classify(&m, &cfg), &churn_of(&m, &cfg));
     assert_eq!(b.compiler_enforced, 3);
     let f = rule(&b, "domain-no-io");
     assert_eq!(f.tier, Tier::Compiler);
@@ -402,6 +435,16 @@ fn adding_a_rule_without_choosing_its_enforcement_fails_this_test() {
         // Decidable, and deliberately a warning: one fake per port is a
         // convention a team adopts over a refactor, not a property of a build.
         "port-has-fake",
+        // Spec 08. Both are decidable on premises the model and the repository
+        // carry, and both warn: the premise is knowable, the judgment is not.
+        // `untested-port` fires on every port of a crate whose suite this tool
+        // did not scan, and `churn-concentration` fires hardest on the file
+        // someone is actively working on. A build that fails there teaches the
+        // team to ignore the tool. Both are recorded in every report and in the
+        // baseline either way, and promoting either is a deliberate edit to
+        // `rules.rs`, to this list, and to spec 08.
+        "untested-port",
+        "churn-concentration",
         // Heuristics. These can never gate; see the test below.
         "store-decides",
         "handler-decides",
@@ -473,7 +516,7 @@ fn a_delegated_rule_does_not_gate_even_when_marked_gating() {
     let m = metatron::scan(&dir).unwrap();
     let mut cfg = Config::load(&dir).unwrap();
     cfg.crate_graph = "B".into();
-    let report = check(&m, &cfg, &classify(&m, &cfg));
+    let report = check(&m, &cfg, &classify(&m, &cfg), &churn_of(&m, &cfg));
     let f = rule(&report, "domain-no-io");
     assert_eq!(f.kind, Kind::Decidable);
     assert_eq!(f.status, Status::Delegated);
@@ -506,5 +549,121 @@ fn the_baseline_and_the_scorecard_agree_about_what_gates() {
             "{}: baseline::current() disagrees with gates()",
             f.id
         );
+    }
+}
+
+// ------------------------------------------- does a test target change a verdict?
+
+/// A suite that calls across every layer from `tests/` must not move a single
+/// finding.
+///
+/// The first assertion is the one with teeth: no symbol in a test target may be
+/// classified to a configured layer. The classifier gives test code the
+/// pseudo-layer `test` (`src/classify.rs:420-426`), which is in no profile's
+/// layer list, so the layering rules cannot see it. `tests/acceptance.rs`
+/// defines `fn helper()`, which the fixture's own patterns *would* classify as
+/// `domain` — so if the test-target branch of the classifier were ever dropped,
+/// this fails rather than quietly reclassifying test code as the domain.
+///
+/// The second assertion is the weaker net: the whole verdict map, identical with
+/// and without `tests/`. A mutation experiment showed it is insensitive to the
+/// `is_test` flag by itself, because the pseudo-layer is invisible to every
+/// layering rule either way. It is kept because a *new* rule that iterated all
+/// symbols rather than classified ones would land here, and it costs one scan.
+#[test]
+fn a_test_target_does_not_change_any_other_rules_verdict() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/suite");
+    let m = metatron::scan(&dir).expect("scan failed");
+    let cfg = Config::load(&dir).expect("config failed");
+    let c = classify(&m, &cfg);
+
+    // `test` is a real layer in patterns-rust ("fakes and specs"), so the
+    // invariant is not "unclassified" but "in `test` and nowhere else": a
+    // test-target symbol classified as `domain` is a layering bug that every
+    // rule downstream would act on.
+    let in_tests: Vec<&Symbol> = m
+        .symbols
+        .iter()
+        .filter(|s| s.file.starts_with("../tests/") && s.parent.is_none())
+        .collect();
+    assert!(!in_tests.is_empty(), "the fixture scanned no test symbols");
+    for s in &in_tests {
+        assert_eq!(
+            c.layer_of(&s.id),
+            Some("test"),
+            "{} is test code but is not in the test layer",
+            s.id
+        );
+    }
+    assert!(
+        cfg.layers.iter().any(|l| l.id == "test"),
+        "patterns-rust no longer has a test layer, so this assertion is vacuous"
+    );
+
+    // `helper` really does match the domain pattern, which is what makes the
+    // assertion above non-vacuous: the same name in `src/` is domain code, and
+    // only the target is what separates the two.
+    let src_helper = m
+        .symbols
+        .iter()
+        .find(|s| s.id.ends_with("::helper") && !s.file.starts_with("../tests/"))
+        .expect("the src helper");
+    assert_eq!(
+        c.layer_of(&src_helper.id),
+        Some("domain"),
+        "the fixture no longer classifies its own helper as domain, so the \
+         assertion above would pass for the wrong reason"
+    );
+    let test_helper = m
+        .symbols
+        .iter()
+        .find(|s| s.id.ends_with("::helper") && s.file.starts_with("../tests/"))
+        .expect("the test helper");
+    assert_eq!(
+        c.pattern_of(&test_helper.id),
+        Some("test"),
+        "a test target's symbols carry the test pseudo-pattern"
+    );
+
+    let with_tests = fixture("suite");
+    let without = run(strip_tests("suite"));
+    let ids = |r: &Report| -> BTreeMap<&str, (Status, usize)> {
+        r.findings
+            .iter()
+            .map(|f| (f.id, (f.status, f.instances.len())))
+            .collect()
+    };
+    assert_eq!(
+        ids(&with_tests),
+        ids(&without),
+        "scanning a test target changed a verdict"
+    );
+}
+
+/// Copy a fixture to a temp dir without its `tests/` directory.
+fn strip_tests(name: &str) -> PathBuf {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name);
+    let dst = std::env::temp_dir().join(format!("metatron-no-tests-{name}"));
+    let _ = std::fs::remove_dir_all(&dst);
+    copy_dir(&src, &dst, true);
+    dst
+}
+
+fn copy_dir(from: &Path, to: &Path, skip_tests: bool) {
+    std::fs::create_dir_all(to).expect("mkdir");
+    for e in std::fs::read_dir(from).expect("read_dir") {
+        let e = e.expect("entry");
+        let p = e.path();
+        let name = e.file_name();
+        if skip_tests && name == "tests" {
+            continue;
+        }
+        if p.is_dir() {
+            copy_dir(&p, &to.join(name), skip_tests);
+        } else {
+            std::fs::copy(&p, to.join(name)).expect("copy");
+        }
     }
 }
