@@ -447,3 +447,76 @@ fn lcom_inputs_are_populated() {
     assert!(with_fields > 30, "only {with_fields} methods touch a field");
     assert!(with_calls > 20, "only {with_calls} methods call a sibling");
 }
+
+// --------------------------------------------------------------- cfg honesty
+
+#[test]
+fn a_cfg_gated_item_is_recorded_and_the_model_says_it_may_not_compile() {
+    let m = fixture("cfgd");
+
+    // Recorded, not evaluated: the symbol is in the model either way, carrying
+    // its predicate. Removing gated code from the picture would hide more than
+    // it reveals.
+    let fast = sym(&m, "Fast");
+    assert_eq!(fast.kind, SymbolKind::Struct);
+    assert!(
+        fast.cfg.iter().any(|c| c.contains("fast")),
+        "the predicate was dropped: {:?}",
+        fast.cfg
+    );
+
+    // And the model admits the rest of it. One diagnostic per *file*, naming
+    // the count: per-symbol would be six lines of noise that trains the reader
+    // to skip the section.
+    let cfgd: Vec<&Diagnostic> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::CfgExcluded)
+        .collect();
+    assert_eq!(
+        cfgd.len(),
+        2,
+        "expected one per file, not one per symbol: {cfgd:?}"
+    );
+
+    let lib = cfgd.iter().find(|d| d.file == "lib.rs").expect("lib.rs");
+    assert!(lib.line > 0, "a file diagnostic should point at a line");
+    assert!(
+        lib.detail.contains("2 item(s)"),
+        "the count should match the gated symbols: {}",
+        lib.detail
+    );
+
+    let platform = cfgd
+        .iter()
+        .find(|d| d.file == "platform.rs")
+        .expect("platform.rs");
+    assert!(
+        platform.detail.contains("3 item(s)"),
+        "a second file is counted separately: {}",
+        platform.detail
+    );
+
+    for d in &cfgd {
+        assert!(!d.detail.is_empty(), "{d:?}");
+        assert!(
+            d.detail.contains("may not compile") || d.detail.contains("does not compile"),
+            "the diagnostic should say what it means: {}",
+            d.detail
+        );
+    }
+}
+
+#[test]
+fn a_file_with_no_cfg_produces_no_such_diagnostic() {
+    // The negative control. Without it, a scanner that emitted one CfgExcluded
+    // per file unconditionally would pass the test above.
+    let m = fixture("dual");
+    assert!(
+        m.diagnostics
+            .iter()
+            .all(|d| d.kind != DiagnosticKind::CfgExcluded),
+        "a crate with no cfg attributes was reported: {:?}",
+        m.diagnostics
+    );
+}

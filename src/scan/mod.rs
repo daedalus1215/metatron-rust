@@ -234,6 +234,57 @@ impl Scanner {
         out
     }
 
+    /// Admit the part of the model that may not compile.
+    ///
+    /// `#[cfg]` is recorded, not evaluated: a symbol keeps its raw predicate so
+    /// a reader can judge it, and the model includes gated code as if it were
+    /// live. That is the useful default — deleting a whole platform's worth of
+    /// code from the picture would hide more than it reveals — but it means a
+    /// symbol can be in the model and not in the binary, and a model that does
+    /// not say so is claiming to be more than it is.
+    ///
+    /// One diagnostic per file, not per symbol. Per-symbol is noise that trains
+    /// the reader to skip the section, which defeats the point of having it.
+    fn note_cfg_gated(&mut self) {
+        // (file, line, predicate) for every symbol carrying a cfg.
+        let mut by_file: BTreeMap<&str, (u32, Vec<&str>)> = BTreeMap::new();
+        for s in &self.symbols {
+            if s.cfg.is_empty() {
+                continue;
+            }
+            let e = by_file.entry(&s.file).or_insert((s.line, Vec::new()));
+            e.0 = e.0.min(s.line);
+            for c in &s.cfg {
+                if !e.1.contains(&c.as_str()) {
+                    e.1.push(c);
+                }
+            }
+        }
+
+        for (file, (line, preds)) in by_file {
+            let n = self
+                .symbols
+                .iter()
+                .filter(|s| s.file == file && !s.cfg.is_empty())
+                .count();
+            let shown: Vec<String> = preds.iter().take(3).map(|p| format!("`{p}`")).collect();
+            let mut list = shown.join(", ");
+            if preds.len() > shown.len() {
+                list.push_str(&format!(" and {} more", preds.len() - shown.len()));
+            }
+            self.diagnostics.push(Diagnostic {
+                kind: DiagnosticKind::CfgExcluded,
+                file: file.to_string(),
+                line,
+                detail: format!(
+                    "{n} item(s) sit behind a cfg predicate ({list}), so the model \
+                     may describe code that this build does not compile. \
+                     Each symbol keeps its predicate in `cfg`."
+                ),
+            });
+        }
+    }
+
     fn skip_target(&mut self, target: &str, why: &str) {
         self.diagnostics.push(Diagnostic {
             kind: DiagnosticKind::TargetSkipped,
@@ -292,6 +343,8 @@ impl Scanner {
         for t in &targets {
             self.walk_module(&t.mod_id, &t.path, true)?;
         }
+
+        self.note_cfg_gated();
 
         let (edges, externs) = self.resolve();
 
