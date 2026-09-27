@@ -14,7 +14,8 @@ impl Sandbox {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(fixture);
-        let dst = std::env::temp_dir().join(format!("metatron-{fixture}-{tag}-{}", std::process::id()));
+        let dst =
+            std::env::temp_dir().join(format!("metatron-{fixture}-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dst);
         copy(&src, &dst);
         Sandbox(dst)
@@ -83,11 +84,23 @@ fn tree(dir: &Path) -> Vec<String> {
 fn the_fingerprint_is_stable_and_names_the_offender() {
     let a = baseline::fingerprint("domain-no-io", "domain::x", "std::fs");
     assert_eq!(a.len(), 12);
-    assert_eq!(a, baseline::fingerprint("domain-no-io", "domain::x", "std::fs"));
+    assert_eq!(
+        a,
+        baseline::fingerprint("domain-no-io", "domain::x", "std::fs")
+    );
     // Any of the three parts changing is a different violation.
-    assert_ne!(a, baseline::fingerprint("domain-no-io", "domain::y", "std::fs"));
-    assert_ne!(a, baseline::fingerprint("domain-no-io", "domain::x", "std::process"));
-    assert_ne!(a, baseline::fingerprint("time-injected", "domain::x", "std::fs"));
+    assert_ne!(
+        a,
+        baseline::fingerprint("domain-no-io", "domain::y", "std::fs")
+    );
+    assert_ne!(
+        a,
+        baseline::fingerprint("domain-no-io", "domain::x", "std::process")
+    );
+    assert_ne!(
+        a,
+        baseline::fingerprint("time-injected", "domain::x", "std::fs")
+    );
 }
 
 #[test]
@@ -128,7 +141,10 @@ fn a_swap_is_caught_where_a_count_would_pass() {
 fn accepting_the_baseline_makes_an_unchanged_tree_pass() {
     let s = Sandbox::of("leaky", "accept");
     let before = metatron::check(s.path());
-    assert!(before.exit_code(0) == 1, "a crate built to break the rules should fail first");
+    assert!(
+        before.exit_code(0) == 1,
+        "a crate built to break the rules should fail first"
+    );
 
     s.accept();
     let after = metatron::check(s.path());
@@ -185,7 +201,11 @@ fn a_fixed_violation_is_reported_and_the_baseline_is_not_mutated() {
 
     let after = metatron::check(s.path());
     assert_eq!(after.diff.fixed.len(), 1);
-    assert_eq!(after.exit_code(0), 0, "fixing something must not fail the build");
+    assert_eq!(
+        after.exit_code(0),
+        0,
+        "fixing something must not fail the build"
+    );
 
     let now = std::fs::read_to_string(baseline::path_of(s.path())).unwrap();
     assert_eq!(before, now, "check mutated the baseline");
@@ -240,11 +260,17 @@ fn hand_written_notes_survive_an_update_and_dropped_ones_are_counted() {
     );
 
     let sc = metatron::check(s.path());
-    let (next, out) =
-        baseline::update(&sc.report, &sc.baseline, &sc.model.project, sc.coverage());
+    let (next, out) = baseline::update(&sc.report, &sc.baseline, &sc.model.project, sc.coverage());
 
-    assert_eq!(out.notes_preserved, 1, "the surviving note was not preserved");
-    assert_eq!(out.notes_dropped.len(), 1, "the dropped note was not reported");
+    assert_eq!(
+        out.notes_preserved, 1,
+        "the surviving note was not preserved"
+    );
+    assert_eq!(
+        out.notes_dropped.len(),
+        1,
+        "the dropped note was not reported"
+    );
     assert_eq!(out.notes_dropped[0].0, lose);
     assert_eq!(out.notes_dropped[0].1.note, "renamed next commit");
     assert_eq!(next.violations[&keep].note, "blocked on the Config port");
@@ -293,7 +319,10 @@ fn no_heuristic_can_enter_the_baseline_or_change_the_exit_code() {
             !cur.values().any(|e| e.rule == *h),
             "{h} entered the ratchet"
         );
-        assert!(excluded.iter().any(|x| x.rule == *h), "{h} was excluded silently");
+        assert!(
+            excluded.iter().any(|x| x.rule == *h),
+            "{h} was excluded silently"
+        );
     }
     // And every exclusion says why, so a rule cannot sit outside the gate
     // unnoticed.
@@ -336,7 +365,10 @@ fn the_panic_message_is_the_report() {
     assert!(text.contains("domain-no-io"), "{text}");
     assert!(text.contains(".rs:"), "no file:line in the message: {text}");
     assert!(text.contains("fingerprint"), "{text}");
-    assert!(text.contains("metatron baseline"), "no next step offered: {text}");
+    assert!(
+        text.contains("metatron baseline"),
+        "no next step offered: {text}"
+    );
 }
 
 #[test]
@@ -380,7 +412,10 @@ fn arioch_scores_as_a_crate_with_no_architecture_yet() {
     let e = s.enforcement();
 
     assert!(s.coverage() < 5.0, "coverage {:.1}%", s.coverage());
-    assert_eq!(e.compiler, 0, "nothing is compiler-enforced in a single crate");
+    assert_eq!(
+        e.compiler, 0,
+        "nothing is compiler-enforced in a single crate"
+    );
     assert!(c.unevaluable > 10, "unevaluable {}", c.unevaluable);
     assert!(c.upheld == 0, "arioch upholds no port");
     assert!(c.violated > 0);
@@ -388,10 +423,8 @@ fn arioch_scores_as_a_crate_with_no_architecture_yet() {
     // And the shape of the scorecard itself: no single percentage.
     assert!(!s.had_baseline, "arioch has no committed baseline");
 
-    let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        s.assert_no_unevaluable()
-    }))
-    .unwrap_err();
+    let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.assert_no_unevaluable()))
+        .unwrap_err();
     let text = err.downcast_ref::<String>().cloned().unwrap_or_default();
     assert!(text.contains("they are not passing"), "{text}");
 }

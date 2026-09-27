@@ -1,0 +1,13 @@
+# The layer title is free text in a file a human edits, and it reaches every
+# view payload as a tier name. If the escaping in views/mod.rs regresses, this
+# fixture renders a truncated page rather than a wrong one.
+extends = "patterns-rust"
+
+[[layer]]
+id = "domain"
+title = "core </script> <!-- still core"
+
+[[add_pattern]]
+id = "widget"
+layer = "domain"
+symbol = { kind = "struct", name = "^Widget$" }

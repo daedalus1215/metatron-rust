@@ -1,6 +1,6 @@
 ---
 title: metatron-rust specs — index and sequencing
-status: draft
+status: implemented
 project: metatron-rust
 location: specs/README.md
 created: 2026-08-29
@@ -9,9 +9,11 @@ tags: [index, roadmap, rust, ddd]
 
 # Specs
 
-Six specs, written 2026-08-29. A Rust rewrite of [`metatron-nestjs`](../../metatron-nestjs)
-that checks Rust codebases against [`patterns-rust`](../../../patterns-rust/README.md).
-Numbered by dependency, not by importance.
+Seven specs, all written and implemented: 01-06 on 2026-08-29, 07 on 2026-09-26.
+A Rust rewrite of [`metatron-nestjs`](../../metatron-nestjs) that checks Rust
+codebases against `patterns-rust` — the layout convention the rules are written
+against, named throughout but not a checkout beside this one. Numbered by
+dependency, not by importance.
 
 | # | spec | kind | depends on |
 |---|------|------|-----------|
@@ -21,6 +23,7 @@ Numbered by dependency, not by importance.
 | 04 | [Conformance rules and enforcement tiers](04-conformance-rules.md) | gating | 01, 03 |
 | 05 | [Scorecard, baseline, and `cargo test`](05-scorecard-and-baseline.md) | gating | 04 |
 | 06 | [Retargeting the views](06-views.md) | presentation | 03, 04 |
+| 07 | [Trustworthiness and self-audit](07-trustworthiness-and-self-audit.md) | self-audit | 01-06 |
 
 ## Why full Rust
 
@@ -117,7 +120,7 @@ Every one of those is a test case with a known answer. The acceptance criteria
 in specs 02 and 04 are written against them directly. A detector that cannot
 find what its author already found by hand is not ready.
 
-## The thread running through all six
+## The thread running through all seven
 
 metatron's own specs README ends on this and it carries over intact: the failure
 mode of an architecture tool is not crashing, it is drawing a confident picture
@@ -134,3 +137,6 @@ So each spec names its own refusal:
 - **04** splits every rule by whether it is *decidable* or *heuristic*, and only
   decidable rules may gate a build.
 - **02** refuses to suggest a split for a type it could not fully parse.
+- **07** refuses to report a scan of one file as a census of the crate, and
+  refuses to print an unqualified `PASS` over a scan that examined almost
+  nothing.

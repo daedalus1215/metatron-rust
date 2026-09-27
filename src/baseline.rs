@@ -76,8 +76,8 @@ impl Baseline {
         if !p.exists() {
             return Ok(Self::default());
         }
-        let text = std::fs::read_to_string(&p)
-            .with_context(|| format!("reading {}", p.display()))?;
+        let text =
+            std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         toml::from_str(&text).with_context(|| format!("parsing {}", p.display()))
     }
 
@@ -140,15 +140,24 @@ pub fn current(report: &Report) -> (BTreeMap<String, Entry>, Vec<Excluded>) {
     let mut excluded = Vec::new();
     for f in &report.findings {
         if f.kind == Kind::Heuristic {
-            excluded.push(Excluded { rule: f.id, why: "heuristic — cannot gate" });
+            excluded.push(Excluded {
+                rule: f.id,
+                why: "heuristic — cannot gate",
+            });
             continue;
         }
         if f.status == Status::Delegated {
-            excluded.push(Excluded { rule: f.id, why: "delegated — guaranteed elsewhere" });
+            excluded.push(Excluded {
+                rule: f.id,
+                why: "delegated — guaranteed elsewhere",
+            });
             continue;
         }
-        if !f.gate {
-            excluded.push(Excluded { rule: f.id, why: "advisory — warns, does not fail" });
+        if !f.gates() {
+            excluded.push(Excluded {
+                rule: f.id,
+                why: "advisory — warns, does not fail",
+            });
             continue;
         }
         if f.status != Status::Violated {
@@ -177,7 +186,13 @@ pub fn diff(report: &Report, base: &Baseline) -> Diff {
     for (fp, e) in &cur {
         match base.violations.get(fp) {
             // Carry the hand-written note onto the live violation.
-            Some(b) => known.push((fp.clone(), Entry { note: b.note.clone(), ..e.clone() })),
+            Some(b) => known.push((
+                fp.clone(),
+                Entry {
+                    note: b.note.clone(),
+                    ..e.clone()
+                },
+            )),
             None => new.push((fp.clone(), e.clone())),
         }
     }
@@ -187,7 +202,12 @@ pub fn diff(report: &Report, base: &Baseline) -> Diff {
         .filter(|(fp, _)| !cur.contains_key(*fp))
         .map(|(fp, e)| (fp.clone(), e.clone()))
         .collect();
-    Diff { new, known, fixed, excluded }
+    Diff {
+        new,
+        known,
+        fixed,
+        excluded,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -202,7 +222,12 @@ pub struct UpdateOutcome {
 
 /// Accept today's violations. Preserves every note whose fingerprint
 /// survives, and reports the ones it had to drop.
-pub fn update(report: &Report, base: &Baseline, project: &str, coverage: f64) -> (Baseline, UpdateOutcome) {
+pub fn update(
+    report: &Report,
+    base: &Baseline,
+    project: &str,
+    coverage: f64,
+) -> (Baseline, UpdateOutcome) {
     let (cur, _) = current(report);
     let mut notes_preserved = 0;
     let mut violations = BTreeMap::new();
@@ -232,7 +257,11 @@ pub fn update(report: &Report, base: &Baseline, project: &str, coverage: f64) ->
             p.violations = n;
             p.coverage = coverage;
         }
-        _ => progress.push(Progress { at: today.clone(), violations: n, coverage }),
+        _ => progress.push(Progress {
+            at: today.clone(),
+            violations: n,
+            coverage,
+        }),
     }
 
     let out = UpdateOutcome {
@@ -285,10 +314,20 @@ pub fn now_iso() -> String {
     let s = epoch_secs();
     let (y, m, d) = ymd((s / 86_400) as i64);
     let t = s % 86_400;
-    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", t / 3600, (t % 3600) / 60, t % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        t / 3600,
+        (t % 3600) / 60,
+        t % 60
+    )
 }
 
 /// Rules whose new violations are allowed to change the exit code.
 pub fn gating_rules(report: &Report) -> Vec<&'static str> {
-    report.findings.iter().filter(|f: &&Finding| f.gate).map(|f| f.id).collect()
+    report
+        .findings
+        .iter()
+        .filter(|f: &&Finding| f.gates())
+        .map(|f| f.id)
+        .collect()
 }

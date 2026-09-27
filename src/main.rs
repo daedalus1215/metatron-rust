@@ -1,9 +1,13 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "metatron", version, about = "Rust architecture model and conformance checker")]
+#[command(
+    name = "metatron",
+    version,
+    about = "Rust architecture model and conformance checker"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -49,6 +53,16 @@ enum Cmd {
         /// Suppress the fixed-since-baseline section.
         #[arg(long)]
         no_fixed: bool,
+        /// Fail unless at least this share of symbols was classified.
+        /// Coverage is the ceiling on what any rule here can see, so a floor
+        /// turns "this tool knows little about this crate" into a build
+        /// failure instead of a footnote.
+        #[arg(long, value_name = "PCT")]
+        min_coverage: Option<f64>,
+        /// Fail if any rule that should be decidable could not be. A rule
+        /// whose premises are not in this crate is not a rule that passed.
+        #[arg(long)]
+        require_evaluable: bool,
     },
     /// Render the views to .metatron/views/.
     Views {
@@ -78,45 +92,103 @@ enum Cmd {
     },
 }
 
-fn main() -> Result<()> {
+/// Exit codes, named so the dispatch below reads as the policy it is:
+///
+/// * `0` — the command ran and the answer is in the output.
+/// * `1` — the command ran and the answer is "no": a regression, or a gate that
+///   did not hold. CI fails; nothing is wrong with the tool.
+/// * `2` — the command did not produce an answer: a missing directory, an
+///   unparseable manifest, a template that would not render. Nothing was
+///   checked, so `1` would be a lie about work never done.
+const REGRESSION: u8 = 1;
+const NO_ANSWER: u8 = 2;
+
+/// Above this share of unmatched symbols, a command that is not `classify`
+/// names the groups. Below it, it stays quiet: three stragglers in an
+/// otherwise-clean crate is a fact, not an accusation, and a warning that fires
+/// on nearly every crate is a warning nobody reads.
+const UNMATCHED_WORTH_WARNING: f64 = 10.0;
+
+/// The unmatched-symbol section, shared by the three commands that can know
+/// about it. `classify` prints it unconditionally — naming what it could not
+/// place *is* its job. The others pass `always = false` and get it only past the
+/// threshold.
+///
+/// All three group by file, count, and show one worked example, and all three
+/// name `metatron.toml` as the place to fix it, so the same number never
+/// arrives with different advice attached.
+fn print_gaps(cov: &metatron::classify::Coverage, total_unmatched: usize, always: bool) {
+    if cov.gaps.is_empty() {
+        return;
+    }
+    if !always && cov.ratio() * 100.0 > 100.0 - UNMATCHED_WORTH_WARNING {
+        return;
+    }
+    println!();
+    println!(
+        "  {total_unmatched} symbol(s) matched no pattern, in {} file(s):",
+        cov.gaps.len()
+    );
+    for (file, n, example) in cov.gaps.iter().take(12) {
+        println!("    {file:<28} {n:>4}x   e.g. {example}");
+    }
+    if cov.gaps.len() > 12 {
+        println!("    ... and {} more file(s)", cov.gaps.len() - 12);
+    }
+    println!("    Add a pattern in metatron.toml, or `metatron classify --verbose` for each one.");
+}
+
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(code) => std::process::ExitCode::from(code),
+        Err(e) => {
+            eprintln!("metatron: {e:#}");
+            std::process::ExitCode::from(NO_ANSWER)
+        }
+    }
+}
+
+fn run() -> Result<u8> {
     let cli = Cli::parse();
     let (path, to_stdout) = match cli.command {
         Some(Cmd::Scan { path, stdout }) => (path.or(cli.path), stdout),
-        Some(Cmd::Classify { path, verbose, json }) => {
+        Some(Cmd::Classify {
+            path,
+            verbose,
+            json,
+        }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
             return classify(&dir, verbose, json);
         }
-        Some(Cmd::Check { path, all, json, rules, allow_new, no_fixed }) => {
+        Some(Cmd::Check {
+            path,
+            all,
+            json,
+            rules,
+            allow_new,
+            no_fixed,
+            min_coverage,
+            require_evaluable,
+        }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return match check(&dir, all, json, &rules, allow_new, no_fixed) {
-                Ok(()) => Ok(()),
-                // Exit 2 distinguishes "the tool broke" from "the
-                // architecture regressed" — CI needs to tell them apart.
-                Err(e) => {
-                    eprintln!("metatron: {e:#}");
-                    std::process::exit(2)
-                }
-            };
+            return check(
+                &dir,
+                all,
+                json,
+                &rules,
+                allow_new,
+                no_fixed,
+                min_coverage,
+                require_evaluable,
+            );
         }
         Some(Cmd::Views { path, name, out }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return match views(&dir, name.as_deref(), out) {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    eprintln!("metatron: {e:#}");
-                    std::process::exit(2)
-                }
-            };
+            return views(&dir, name.as_deref(), out);
         }
         Some(Cmd::Baseline { path, update }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return match baseline_cmd(&dir, update) {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    eprintln!("metatron: {e:#}");
-                    std::process::exit(2)
-                }
-            };
+            return baseline_cmd(&dir, update);
         }
         Some(Cmd::Cohesion { path, all, json }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
@@ -131,7 +203,7 @@ fn main() -> Result<()> {
 
     if to_stdout {
         println!("{json}");
-        return Ok(());
+        return Ok(0);
     }
 
     let out = dir.join(".metatron");
@@ -151,6 +223,17 @@ fn main() -> Result<()> {
     );
     println!("  {} impl bindings", model.impls.len());
 
+    // Spec 07: a crate with a library and a binary has two roots, and a
+    // summary that does not say so reads as a census of one file.
+    if s.targets.len() > 1 {
+        let names: Vec<String> = s
+            .targets
+            .iter()
+            .map(|t| format!("{}:{}", t.kind, t.name))
+            .collect();
+        println!("  {} targets · {}", s.targets.len(), names.join(" · "));
+    }
+
     // Spec 03: a scan that reports structure without reporting how much of
     // it was recognised invites the reader to assume all of it was.
     if let Ok(cfg) = metatron::classify::Config::load(&dir) {
@@ -162,6 +245,7 @@ fn main() -> Result<()> {
             c.coverage.ratio() * 100.0,
             c.coverage.ports
         );
+        print_gaps(&c.coverage, c.unmatched.len(), false);
     }
 
     if model.impls.is_empty() {
@@ -197,10 +281,10 @@ fn main() -> Result<()> {
 
     println!();
     println!("  -> {}", out.join("model.json").display());
-    Ok(())
+    Ok(0)
 }
 
-fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
+fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<u8> {
     use metatron::cohesion::Verdict;
 
     let model = metatron::scan(dir)?;
@@ -208,7 +292,7 @@ fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+        return Ok(0);
     }
 
     println!("metatron cohesion · {}", model.project);
@@ -278,7 +362,10 @@ fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
             println!("    never touched: {}", t.unused_fields.join(", "));
         }
         if !t.write_only_fields.is_empty() {
-            println!("    written, never read: {}", t.write_only_fields.join(", "));
+            println!(
+                "    written, never read: {}",
+                t.write_only_fields.join(", ")
+            );
         }
         println!();
     }
@@ -287,23 +374,29 @@ fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
         println!("  mixed-concern functions");
         for f in &report.mixed_concern {
             let cs: Vec<&str> = f.concerns.keys().map(String::as_str).collect();
-            println!("    {}:{:<5} {}  [{}]", f.file, f.line, f.symbol, cs.join(" + "));
+            println!(
+                "    {}:{:<5} {}  [{}]",
+                f.file,
+                f.line,
+                f.symbol,
+                cs.join(" + ")
+            );
         }
         println!();
     }
 
     println!("  advisory — nothing here gates a build (spec 02).");
-    Ok(())
+    Ok(0)
 }
 
-fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
+fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<u8> {
     let model = metatron::scan(dir)?;
     let cfg = metatron::classify::Config::load(dir)?;
     let c = metatron::classify::classify(&model, &cfg);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&c)?);
-        return Ok(());
+        return Ok(0);
     }
 
     let cov = &c.coverage;
@@ -315,8 +408,13 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
         cov.classified,
         cov.total,
         pct,
-        if cov.classified == cov.total { "" } else { "  !" }
+        if cov.classified == cov.total {
+            ""
+        } else {
+            "  !"
+        }
     );
+    print_gaps(cov, c.unmatched.len(), true);
 
     if !cov.by_layer.is_empty() {
         println!();
@@ -325,9 +423,7 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
                 .by_pattern
                 .iter()
                 .filter(|(p, _)| {
-                    cfg.patterns
-                        .iter()
-                        .any(|x| &x.id == *p && &x.layer == l)
+                    cfg.patterns.iter().any(|x| &x.id == *p && &x.layer == l)
                         || (*p == "infra-impl" && l == "infrastructure")
                 })
                 .map(|(p, n)| format!("{p} {n}"))
@@ -356,18 +452,10 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
     }
 
     if !c.unmatched.is_empty() {
-        println!();
-        println!(
-            "  {} symbols matched no pattern. Add them to [[add_pattern]] in metatron.toml:",
-            c.unmatched.len()
-        );
+        print_gaps(cov, c.unmatched.len(), true);
         if verbose {
             for u in &c.unmatched {
                 println!("    {}:{:<5} {:?} {}", u.file, u.line, u.kind, u.name);
-            }
-        } else {
-            for (label, n, example) in cov.gaps.iter().take(12) {
-                println!("    {label:<28} {n:>4}x   e.g. {example}");
             }
         }
     }
@@ -383,20 +471,43 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
     }
 
     println!();
-    Ok(())
+    Ok(0)
 }
 
+#[allow(clippy::too_many_arguments)] // one parameter per flag of one subcommand
 fn check(
-    dir: &PathBuf,
+    dir: &Path,
     all: bool,
     json: bool,
     only: &[String],
     allow_new: usize,
     no_fixed: bool,
-) -> Result<()> {
+    min_coverage: Option<f64>,
+    require_evaluable: bool,
+) -> Result<u8> {
     use metatron::rules::{Kind, Status, Tone};
 
     let s = metatron::scorecard::build(dir)?;
+
+    // Coverage is the ceiling on what any rule here can see: a rule cannot
+    // fire on a symbol the model never matched. A floor turns that from a
+    // footnote into a gate. It is a real "no" rather than a tool failure, so
+    // it exits 1 with the rest of the gate results.
+    let below_floor = min_coverage.filter(|pct| s.coverage() < *pct);
+
+    // A decidable rule that could not be evaluated is a dark rule, and the
+    // distinction matters: a heuristic that cannot decide is honest about
+    // itself and never gates. This is the same predicate the test helper
+    // `Scorecard::assert_no_unevaluable` uses, so the flag and the test suite
+    // cannot disagree about what "evaluable" means.
+    let dark: Vec<&str> = s
+        .report
+        .findings
+        .iter()
+        .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
+        .map(|f| f.id)
+        .collect();
+    let dark_failed = require_evaluable && !dark.is_empty();
 
     if json {
         #[derive(serde::Serialize)]
@@ -419,7 +530,11 @@ fn check(
                 findings: &s.report.findings,
             })?
         );
-        std::process::exit(s.exit_code(allow_new));
+        return Ok(if below_floor.is_some() || dark_failed {
+            REGRESSION
+        } else {
+            s.exit_code(allow_new) as u8
+        });
     }
 
     let c = s.counts();
@@ -436,8 +551,15 @@ fn check(
         cov.classified,
         cov.total,
         s.coverage(),
-        if cov.classified == cov.total { "" } else { "  !" }
+        if cov.classified == cov.total {
+            ""
+        } else {
+            "  !"
+        }
     );
+    // The `!` says "not all of it". This says which files, because a reader
+    // who has not run `classify` cannot act on a bare percentage.
+    print_gaps(cov, s.classified.unmatched.len(), false);
     println!();
     println!(
         "  rules       {:>6}     upheld {} · violated {} · unevaluable {} · pass {}",
@@ -473,7 +595,10 @@ fn check(
     let flags = s.cohesion_flags();
     if !flags.is_empty() {
         println!();
-        println!("  cohesion    {:>6}     type(s) over threshold", flags.len());
+        println!(
+            "  cohesion    {:>6}     type(s) over threshold",
+            flags.len()
+        );
         for t in flags.iter().take(4) {
             println!(
                 "                         {}  {}:{}  {} components, {} methods  [{:?}]",
@@ -505,7 +630,7 @@ fn check(
         .findings
         .iter()
         .filter(|f| f.status == Status::Violated)
-        .filter(|f| f.kind == Kind::Heuristic || !f.gate)
+        .filter(|f| !f.gates())
         .collect();
     if !advisory.is_empty() {
         println!();
@@ -517,7 +642,11 @@ fn check(
                 f.id,
                 f.instances.len(),
                 f.title,
-                if f.kind == Kind::Heuristic { "heuristic" } else { "warn" }
+                if f.kind == Kind::Heuristic {
+                    "heuristic"
+                } else {
+                    "warn"
+                }
             );
             for i in f.instances.iter().take(if all { 100 } else { 3 }) {
                 println!("      {}:{:<5} {}", i.file, i.line, i.detail);
@@ -576,6 +705,52 @@ fn check(
             .filter(|r| only.iter().any(|o| o == r))
             .collect()
     };
+
+    // A name that gates nothing leaves nothing to fail, and "nothing left to
+    // fail" is the PASS a typo deserves least. `metatron check --rule
+    // spec-99-layerin .` used to print `gating on 0 rule(s)` and then PASS,
+    // which is a green build bought with a misspelling.
+    //
+    // Two different mistakes land in the same place, and they deserve different
+    // answers: a name no rule carries is a typo, and a name a heuristic rule
+    // carries cannot fail a build by design. Neither produced a verdict, so
+    // neither is a PASS — but the message should say which one it was.
+    if !only.is_empty() {
+        let known = s.gating_rules();
+        let is_known = |o: &str| s.report.findings.iter().any(|f| f.id == o);
+        let named: Vec<&str> = only.iter().map(String::as_str).collect();
+        let unknown: Vec<&str> = named.iter().copied().filter(|o| !is_known(o)).collect();
+        let advisory: Vec<&str> = named
+            .iter()
+            .copied()
+            .filter(|o| is_known(o) && !known.contains(o))
+            .collect();
+
+        if !unknown.is_empty() {
+            anyhow::bail!(
+                "--rule matched no rule in this crate: {}\n  the rules here are: {}",
+                unknown.join(", "),
+                s.report
+                    .findings
+                    .iter()
+                    .map(|f| f.id)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        if !advisory.is_empty() {
+            anyhow::bail!(
+                "--rule named {}, which is advisory and cannot fail a build\n  \
+                 gating rules are: {}",
+                advisory.join(", "),
+                if known.is_empty() {
+                    "none in this crate".to_string()
+                } else {
+                    known.join(", ")
+                }
+            );
+        }
+    }
     let failing = s
         .diff
         .new
@@ -585,20 +760,95 @@ fn check(
 
     println!();
     if !only.is_empty() {
-        println!("  gating on {} rule(s): {}", gating.len(), gating.join(", "));
+        println!(
+            "  gating on {} rule(s): {}",
+            gating.len(),
+            gating.join(", ")
+        );
     }
     if !s.had_baseline {
-        println!("  no {} — run `metatron baseline --update` to accept the current state.", metatron::baseline::FILE);
+        println!(
+            "  no {} — run `metatron baseline --update` to accept the current state.",
+            metatron::baseline::FILE
+        );
     }
     if failing > allow_new {
         println!("  FAIL — {failing} new violation(s), {allow_new} allowed.");
-        std::process::exit(1);
+        return Ok(REGRESSION);
     }
+    if dark_failed {
+        println!(
+            "  FAIL — {} rule(s) could not be evaluated.\n\
+             \x20        A decidable rule with no premises in this crate is not a \
+             rule that passed:\n{}",
+            dark.len(),
+            dark.iter()
+                .map(|r| format!("          {r}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        return Ok(REGRESSION);
+    }
+    if let Some(pct) = below_floor {
+        let gap = s.classified.unmatched.len();
+        println!(
+            "  FAIL — coverage {:.1}% is below the {pct:.1}% floor.\n\
+             \x20        {gap} symbol(s) matched no pattern in metatron.toml, so \
+             no rule here could have seen them.",
+            s.coverage()
+        );
+        return Ok(REGRESSION);
+    }
+
+    // A verdict is only as good as what it looked at. `PASS` on a line by
+    // itself is a claim about the whole crate, and this tool knows three things
+    // that make the claim narrower: how much of the code was classified at all,
+    // how many rules could not decide, and whether there was a known state to
+    // compare against. They belong beside the word, not in a footnote nobody
+    // scrolls to.
+    //
+    // The exit code is unchanged here. Making these gate is a separate,
+    // opt-in decision (`--min-coverage`, `--require-evaluable`); this commit
+    // only stops the text from claiming more than it measured.
+    let mut narrower = Vec::new();
+    if !s.had_baseline {
+        narrower.push(format!(
+            "no {}, so 'new' means 'all' and nothing was compared",
+            metatron::baseline::FILE
+        ));
+    }
+    if cov.classified < cov.total {
+        narrower.push(format!(
+            "{}/{} symbols classified ({:.1}%) — the rest are outside the model",
+            cov.classified,
+            cov.total,
+            s.coverage()
+        ));
+    }
+    if !dark.is_empty() {
+        narrower.push(format!(
+            "{} decidable rule(s) unevaluable — a rule that cannot decide did not pass",
+            dark.len()
+        ));
+    }
+    if !gating.is_empty() && gating.len() < s.gating_rules().len() {
+        narrower.push(format!(
+            "gating narrowed to {} of {} rule(s)",
+            gating.len(),
+            s.gating_rules().len()
+        ));
+    }
+
     println!(
-        "  PASS — no new violations. {} known.",
-        s.diff.known.len() + if s.had_baseline { 0 } else { s.diff.new.len() }
+        "  PASS — no new violations. {} known. {}",
+        s.diff.known.len() + if s.had_baseline { 0 } else { s.diff.new.len() },
+        if narrower.is_empty() {
+            String::from("")
+        } else {
+            format!("(note: {})", narrower.join("; "))
+        }
     );
-    Ok(())
+    Ok(0)
 }
 
 fn locate(s: &metatron::Scorecard, v: &metatron::baseline::Entry) -> String {
@@ -606,19 +856,19 @@ fn locate(s: &metatron::Scorecard, v: &metatron::baseline::Entry) -> String {
         .findings
         .iter()
         .find(|f| f.id == v.rule)
-        .and_then(|f| f.instances.iter().find(|i| i.from == v.from && i.to == v.to))
+        .and_then(|f| {
+            f.instances
+                .iter()
+                .find(|i| i.from == v.from && i.to == v.to)
+        })
         .map(|i| format!("{}:{:<5} {}", i.file, i.line, i.detail))
         .unwrap_or_else(|| format!("{} -> {}", v.from, v.to))
 }
 
-fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<()> {
+fn baseline_cmd(dir: &Path, write: bool) -> Result<u8> {
     let s = metatron::scorecard::build(dir)?;
-    let (next, out) = metatron::baseline::update(
-        &s.report,
-        &s.baseline,
-        &s.model.project,
-        s.coverage(),
-    );
+    let (next, out) =
+        metatron::baseline::update(&s.report, &s.baseline, &s.model.project, s.coverage());
 
     println!("metatron baseline · {}", s.model.project);
     println!();
@@ -659,12 +909,15 @@ fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<()> {
             );
         }
     } else {
-        println!("  dry run — pass --update to write {}", metatron::baseline::FILE);
+        println!(
+            "  dry run — pass --update to write {}",
+            metatron::baseline::FILE
+        );
     }
-    Ok(())
+    Ok(0)
 }
 
-fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> {
+fn views(dir: &Path, name: Option<&str>, out: Option<PathBuf>) -> Result<u8> {
     let s = metatron::scorecard::build(dir)?;
     let out = out.unwrap_or_else(|| dir.join(".metatron/views"));
 
@@ -675,7 +928,7 @@ fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> 
         std::fs::write(&p, html)?;
         println!("metatron views · {}", s.model.project);
         println!("  -> {}", p.display());
-        return Ok(());
+        return Ok(0);
     }
 
     let written = metatron::views::write_all(&s, &out)?;
@@ -687,7 +940,11 @@ fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> 
             "  {} {:<10} {}",
             if on { "*" } else { " " },
             v.name,
-            if on { v.blurb } else { "omitted — nothing to say about this crate" }
+            if on {
+                v.blurb
+            } else {
+                "omitted — nothing to say about this crate"
+            }
         );
     }
     // Omitted, not emptied: metatron's build drops narration slots with
@@ -695,5 +952,5 @@ fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> 
     println!("    schema     omitted — no ORM in Rust; revisit when a domain layer exists");
     println!();
     println!("  -> {}", out.join("index.html").display());
-    Ok(())
+    Ok(0)
 }

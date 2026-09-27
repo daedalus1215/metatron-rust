@@ -52,8 +52,6 @@ pub struct Atlas {
     #[serde(rename = "platformModules")]
     pub platform_modules: Vec<String>,
     pub ports: Vec<Port>,
-    #[serde(rename = "crossDomain")]
-    pub cross_domain: Vec<(String, String)>,
     pub shape: BTreeMap<String, usize>,
     pub findings: Vec<super::city::CityFinding>,
 }
@@ -188,7 +186,6 @@ pub fn build(s: &Scorecard) -> Atlas {
         domain_modules,
         platform_modules,
         ports,
-        cross_domain: vec![],
         shape,
         findings: s
             .report

@@ -55,7 +55,13 @@ impl Narration {
             .filter(|b| b.trait_id.is_some())
             .filter(|b| b.is_test || b.file.ends_with("mem.rs"))
             .count();
-        let real = s.model.impls.iter().filter(|b| b.trait_id.is_some()).count() - fakes;
+        let real = s
+            .model
+            .impls
+            .iter()
+            .filter(|b| b.trait_id.is_some())
+            .count()
+            - fakes;
         slots.push((
             "ports",
             if cov.ports == 0 {
@@ -234,7 +240,10 @@ impl Narration {
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.slots.iter().find(|(k, _)| *k == key).map(|(_, v)| v.as_str())
+        self.slots
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn paragraphs(&self) -> Vec<&str> {
@@ -269,11 +278,15 @@ pub fn fill(html: &str, s: &Scorecard) -> String {
             .take_while(|c| c.is_ascii_alphanumeric())
             .collect();
         let key_start = at + "data-narr=\"".len();
-        let Some(key_len) = rest[key_start..].find('"') else { break };
+        let Some(key_len) = rest[key_start..].find('"') else {
+            break;
+        };
         let key = &rest[key_start..key_start + key_len];
 
         let close = format!("</{tag}>");
-        let Some(end) = rest[key_start..].find(&close).map(|i| key_start + i + close.len())
+        let Some(end) = rest[key_start..]
+            .find(&close)
+            .map(|i| key_start + i + close.len())
         else {
             break;
         };
@@ -302,5 +315,7 @@ pub fn fill(html: &str, s: &Scorecard) -> String {
 }
 
 fn escape(t: &str) -> String {
-    t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    t.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

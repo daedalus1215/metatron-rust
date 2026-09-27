@@ -23,7 +23,9 @@ fn fixture(name: &str) -> (Model, Config, Classified) {
 
 /// The real checkouts live beside this one.
 fn sibling(name: &str) -> Option<(Model, Config, Classified)> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(name);
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name);
     p.join("Cargo.toml").exists().then(|| run(p))
 }
 
@@ -33,7 +35,8 @@ fn sibling(name: &str) -> Option<(Model, Config, Classified)> {
 fn a_crate_laid_out_per_the_glossary_classifies_completely() {
     let (_, _, r) = fixture("ports");
     assert_eq!(
-        r.coverage.classified, r.coverage.total,
+        r.coverage.classified,
+        r.coverage.total,
         "unmatched: {:?}",
         r.unmatched.iter().map(|u| &u.symbol).collect::<Vec<_>>()
     );
@@ -59,9 +62,15 @@ fn the_two_infra_patterns_are_told_apart_by_what_they_talk_to() {
     // holds a `rusqlite::Connection`; `RealFs` calls `std::fs`. Nothing but
     // the extern reach separates them.
     let (_, _, r) = fixture("ports");
-    assert_eq!(r.pattern_of("infra::sqlite::SqliteActivityStore"), Some("store"));
+    assert_eq!(
+        r.pattern_of("infra::sqlite::SqliteActivityStore"),
+        Some("store")
+    );
     assert_eq!(r.pattern_of("infra::fs::RealFs"), Some("adapter"));
-    assert_eq!(r.layer_of("infra::sqlite::SqliteActivityStore"), Some("infrastructure"));
+    assert_eq!(
+        r.layer_of("infra::sqlite::SqliteActivityStore"),
+        Some("infrastructure")
+    );
     assert_eq!(r.layer_of("infra::fs::RealFs"), Some("infrastructure"));
 }
 
@@ -73,7 +82,10 @@ fn an_infra_impl_that_names_no_external_crate_is_not_guessed() {
     let (_, _, r) = fixture("ports");
     for id in ["infra::mem::MemStore", "infra::mem::FixedClock"] {
         assert_eq!(r.pattern_of(id), Some("infra-impl"), "{id}");
-        assert!(r.by_symbol[id].ambiguous, "{id} should be flagged ambiguous");
+        assert!(
+            r.by_symbol[id].ambiguous,
+            "{id} should be flagged ambiguous"
+        );
         assert!(r.ambiguities.contains(&id.to_string()));
     }
 }
@@ -95,7 +107,10 @@ fn a_module_spanning_layers_is_reported_and_a_single_layer_one_is_not() {
     // spec 02, detector 2 — dark until this spec existed.
     let (m, _, r) = fixture("mixed");
     let mixed = r.mixed_layer_modules(&m);
-    let app = mixed.iter().find(|(id, _)| id == "app").expect("app not reported");
+    let app = mixed
+        .iter()
+        .find(|(id, _)| id == "app")
+        .expect("app not reported");
     assert_eq!(app.1.len(), 3, "{:?}", app.1);
     assert!(
         !mixed.iter().any(|(id, _)| id == "pure"),
@@ -111,8 +126,14 @@ fn add_pattern_prepends_and_the_profile_still_applies() {
     // `main` is still composition-root, which only the profile declares.
     let (_, cfg, r) = fixture("mixed");
     assert_eq!(cfg.extends.as_deref(), Some("patterns-rust"));
-    assert_eq!(cfg.patterns[0].id, "key-handler", "add_pattern did not prepend");
-    assert!(cfg.patterns.iter().any(|p| p.id == "port"), "profile was dropped");
+    assert_eq!(
+        cfg.patterns[0].id, "key-handler",
+        "add_pattern did not prepend"
+    );
+    assert!(
+        cfg.patterns.iter().any(|p| p.id == "port"),
+        "profile was dropped"
+    );
     assert_eq!(r.pattern_of("main"), Some("composition-root"));
     // Inherited from the profile even though the project never named them.
     assert!(!cfg.flow.is_empty());
@@ -150,7 +171,10 @@ fn dropping_the_port_pattern_drops_the_tools_confidence() {
     );
     // `implements_port` can no longer be satisfied, so store and adapter
     // stop matching too — the premise is gone, not merely unproven.
-    assert_ne!(without.pattern_of("infra::sqlite::SqliteActivityStore"), Some("store"));
+    assert_ne!(
+        without.pattern_of("infra::sqlite::SqliteActivityStore"),
+        Some("store")
+    );
 }
 
 // -------------------------------------------------------------- arioch
@@ -160,7 +184,9 @@ fn arioch_classifies_at_approximately_zero_and_says_so() {
     // Zero is the correct answer and must not be suppressed, rounded away,
     // or reported as a pass. arioch has no `domain/`, no `infra/`, no
     // `application/`, and no trait anywhere.
-    let Some((_, _, r)) = sibling("arioch") else { return };
+    let Some((_, _, r)) = sibling("arioch") else {
+        return;
+    };
     assert_eq!(r.coverage.ports, 0, "arioch has no locally defined trait");
     assert!(
         r.coverage.ratio() < 0.05,
@@ -184,7 +210,9 @@ fn the_composition_root_rule_does_not_swallow_the_file_it_names() {
     // A path-only rule on `main.rs` classifies everything that happens to
     // sit there. In arioch that is 17 symbols, and it turns a 1% coverage
     // figure into 20% — the tool flattering the code again.
-    let Some((_, _, r)) = sibling("arioch") else { return };
+    let Some((_, _, r)) = sibling("arioch") else {
+        return;
+    };
     let roots = r
         .by_symbol
         .values()
@@ -201,7 +229,10 @@ fn methods_inherit_their_type_and_do_not_inflate_coverage() {
     assert!(m.inherited);
     // 48 methods on one god object must not count as 48 classified units.
     assert!(
-        !r.coverage.by_pattern.values().any(|n| *n > r.coverage.total),
+        !r.coverage
+            .by_pattern
+            .values()
+            .any(|n| *n > r.coverage.total),
         "inherited classifications leaked into the totals"
     );
 }

@@ -81,7 +81,10 @@ pub fn build(s: &Scorecard) -> Cohesion {
                 methods.extend(c.methods.iter().cloned());
                 fields.extend(c.fields.iter().cloned());
                 blocks.push(Block {
-                    name: c.name.clone().unwrap_or_else(|| format!("group {}", blocks.len() + 1)),
+                    name: c
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| format!("group {}", blocks.len() + 1)),
                     row,
                     rows: c.methods.len(),
                     col,
@@ -104,9 +107,7 @@ pub fn build(s: &Scorecard) -> Cohesion {
                     s.model
                         .symbols
                         .iter()
-                        .find(|x| {
-                            x.parent.as_deref() == Some(t.symbol.as_str()) && &x.name == m
-                        })
+                        .find(|x| x.parent.as_deref() == Some(t.symbol.as_str()) && &x.name == m)
                         .map(|x| x.self_fields.iter().filter_map(|f| col_of(f)).collect())
                         .unwrap_or_default()
                 })

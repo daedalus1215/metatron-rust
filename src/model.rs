@@ -107,6 +107,11 @@ pub struct Symbol {
     /// `self.<method>()` called from a method body. Joins LCOM components.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub self_calls: Vec<String>,
+    /// Calls that abort on failure, as `(method, line)`. Recorded for the
+    /// `panic-in-domain` rule, which until now had no premise to evaluate and
+    /// said so.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub panics: Vec<(String, u32)>,
     pub loc: u32,
 }
 
@@ -154,6 +159,9 @@ pub enum DiagnosticKind {
     CfgExcluded,
     ParseFailure,
     MissingModule,
+    /// A compilation unit cargo would build that this scan did not cover. A
+    /// narrowed scan that does not say so is the failure this project names.
+    TargetSkipped,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +205,21 @@ pub struct Stats {
     pub fns: usize,
     pub edges: usize,
     pub loc: u32,
+    /// Every compilation unit this scan covered. A crate with a library and a
+    /// binary has two, and a summary that does not say so reads as a census of
+    /// one file.
+    pub targets: Vec<TargetInfo>,
+}
+
+/// One compilation unit the scan covered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetInfo {
+    /// `lib` or `bin`.
+    pub kind: String,
+    /// The crate's target name — the package name for a library.
+    pub name: String,
+    /// Crate-relative path to the root file.
+    pub file: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

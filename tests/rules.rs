@@ -12,11 +12,15 @@ fn run(dir: PathBuf) -> Report {
 }
 
 fn fixture(name: &str) -> Report {
-    run(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name))
+    run(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name))
 }
 
 fn sibling(name: &str) -> Option<Report> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(name);
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name);
     p.join("Cargo.toml").exists().then(|| run(p))
 }
 
@@ -32,8 +36,16 @@ fn rule<'a>(r: &'a Report, id: &str) -> &'a Finding {
 #[test]
 fn the_conforming_crate_violates_no_gating_rule() {
     let r = fixture("ports");
-    let failed: Vec<&str> = r.findings.iter().filter(|f| f.failed()).map(|f| f.id).collect();
-    assert!(failed.is_empty(), "gating failures on a conforming crate: {failed:?}");
+    let failed: Vec<&str> = r
+        .findings
+        .iter()
+        .filter(|f| f.failed())
+        .map(|f| f.id)
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "gating failures on a conforming crate: {failed:?}"
+    );
 }
 
 #[test]
@@ -46,7 +58,10 @@ fn every_decidable_rule_evaluates_against_the_conforming_crate() {
         .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
         .map(|f| f.id)
         .collect();
-    assert!(dark.is_empty(), "unevaluable against a conforming crate: {dark:?}");
+    assert!(
+        dark.is_empty(),
+        "unevaluable against a conforming crate: {dark:?}"
+    );
 }
 
 #[test]
@@ -93,7 +108,13 @@ fn every_heuristic_fires_and_none_of_them_gates() {
     // guess is switched off within a week, and takes the decidable rules
     // with it.
     let r = fixture("leaky");
-    for id in ["store-decides", "handler-decides", "service-wraps-one", "fat-trait", "renders-off-store"] {
+    for id in [
+        "store-decides",
+        "handler-decides",
+        "service-wraps-one",
+        "fat-trait",
+        "renders-off-store",
+    ] {
         let f = rule(&r, id);
         assert_eq!(f.kind, Kind::Heuristic, "{id}");
         assert!(!f.gate, "{id} gates");
@@ -105,9 +126,16 @@ fn every_heuristic_fires_and_none_of_them_gates() {
         .filter(|f| f.kind == Kind::Heuristic && f.status == Status::Violated)
         .map(|f| f.id)
         .collect();
-    assert!(fired.len() >= 3, "expected the heuristics to fire: {fired:?}");
+    assert!(
+        fired.len() >= 3,
+        "expected the heuristics to fire: {fired:?}"
+    );
     // And the exit code ignores them entirely.
-    let heuristic_failures = r.findings.iter().filter(|f| f.kind == Kind::Heuristic && f.failed()).count();
+    let heuristic_failures = r
+        .findings
+        .iter()
+        .filter(|f| f.kind == Kind::Heuristic && f.failed())
+        .count();
     assert_eq!(heuristic_failures, 0);
 }
 
@@ -119,7 +147,10 @@ fn the_violation_the_glossary_cares_most_about_is_reported_and_never_gates() {
     let r = fixture("leaky");
     let f = rule(&r, "store-decides");
     assert_eq!(f.status, Status::Violated);
-    assert!(f.instances.iter().any(|i| i.detail.contains("StartOutcome")));
+    assert!(f
+        .instances
+        .iter()
+        .any(|i| i.detail.contains("StartOutcome")));
     assert!(!f.gate);
 }
 
@@ -135,7 +166,10 @@ fn naming_a_concrete_fires_both_rules_that_cover_it() {
         .instances
         .iter()
         .any(|i| i.from == "domain::use_cases::activity::start_activity"));
-    assert!(cor.instances.iter().any(|i| i.to.ends_with("SqliteActivityStore")));
+    assert!(cor
+        .instances
+        .iter()
+        .any(|i| i.to.ends_with("SqliteActivityStore")));
 }
 
 #[test]
@@ -177,7 +211,12 @@ fn a_rule_whose_premise_is_absent_is_never_a_pass() {
         "domain-no-io",
     ] {
         let f = rule(&r, id);
-        assert_eq!(f.status, Status::Unevaluable, "{id} reported {:?}", f.status);
+        assert_eq!(
+            f.status,
+            Status::Unevaluable,
+            "{id} reported {:?}",
+            f.status
+        );
         assert!(!f.because.is_empty(), "{id} does not say why");
     }
     assert!(r.unevaluable().len() > 10);
@@ -221,7 +260,9 @@ fn arioch_render_functions_read_the_registry_directly() {
         .iter()
         .any(|i| i.detail.contains("app.registry.entries")));
     assert!(
-        f.instances.iter().all(|i| i.detail.contains("app.registry")),
+        f.instances
+            .iter()
+            .all(|i| i.detail.contains("app.registry")),
         "imprecise chains leaked in: {:?}",
         f.instances.iter().map(|i| &i.detail).collect::<Vec<_>>()
     );
@@ -270,10 +311,200 @@ fn the_workspace_split_hands_three_rules_to_the_compiler() {
 }
 
 #[test]
-fn a_lint_the_toolchain_ships_is_listed_and_not_reimplemented() {
+fn a_lint_the_toolchain_ships_is_listed_under_its_tier_and_decided_here() {
+    // `clippy::unwrap_used` could do this job, which is why the tier says
+    // `clippy`. It used to also claim the rule was `Delegated` to a
+    // per-module deny in a `clippy.toml` — a file this repository does not
+    // have. Nothing was enforcing it, and a rule delegated to nothing has no
+    // premise: it was dark in every crate, which made `--require-evaluable`
+    // permanently red. It is decided from the model instead.
+    let conforming = fixture("ports");
+    let clean = rule(&conforming, "panic-in-domain");
+    assert_eq!(clean.tier, Tier::Clippy);
+    assert_eq!(clean.status, Status::Pass);
+    assert!(
+        clean.gates(),
+        "a rule that can be decided should fail a build"
+    );
+    assert!(clean.instances.is_empty());
+
+    let unwrapping = fixture("panics");
+    let dirty = rule(&unwrapping, "panic-in-domain");
+    assert_eq!(dirty.status, Status::Violated);
+    assert!(dirty.failed());
+    let lines: Vec<u32> = dirty.instances.iter().map(|i| i.line).collect();
+    assert_eq!(lines, vec![8, 18], "the call site, not the fn's first line");
+    assert!(dirty
+        .instances
+        .iter()
+        .all(|i| i.file.ends_with("domain/mod.rs")));
+    assert!(dirty
+        .instances
+        .iter()
+        .any(|i| i.detail.contains("unwrap") && i.detail.contains("index_of")));
+    assert!(dirty
+        .instances
+        .iter()
+        .any(|i| i.detail.contains("expect") && i.detail.contains("port_of")));
+}
+
+#[test]
+fn the_enforcement_line_partitions_the_rules_it_counts() {
+    // `enforcement compiler 0 · metatron 16 · clippy 0 · advisory 6` reads as
+    // four buckets of 22 rules. It was not: `clippy` counted by tier and
+    // `metatron` counted by `gates()`, so a rule that was both — tier
+    // `clippy`, decided here, gating — appeared in two buckets and the
+    // arithmetic stopped adding up.
+    for dir in ["ports", "panics", "leaky", "gnarly"] {
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(dir);
+        let n = fixture(dir).findings.len();
+        let e = metatron::check(&p).enforcement();
+        let total = e.compiler + e.metatron + e.clippy + e.advisory;
+        assert_eq!(total, n, "{dir}: {e:?} does not partition {n} rules");
+        assert_eq!(e.clippy, 0, "{dir}: nothing is enforced by clippy here");
+    }
+}
+
+// ------------------------------------------------- who is allowed to gate
+
+#[test]
+fn adding_a_rule_without_choosing_its_enforcement_fails_this_test() {
+    // The rule table is a list somebody appends to, and `Finding::new` takes
+    // `kind` and `gate` as arguments — so a new rule cannot be added without
+    // passing *something*, and `Kind::Decidable, false` is as easy to type as
+    // `true`. Pinning both lists is the only way "somebody decided this one
+    // warns" is distinguishable from "somebody copied the line above".
+    //
+    // Both directions are pinned: a new gating rule has to be named here too,
+    // because a rule that starts failing builds is as much a decision as one
+    // that does not.
+    const GATES: &[&str] = &[
+        "domain-no-io",
+        "domain-no-application",
+        "infra-no-application",
+        "concrete-outside-root",
+        "call-through-port",
+        "flow-skip",
+        "no-same-level",
+        "port-signature-purity",
+        "no-global-mut",
+        "dto-in-domain",
+        "use-case-verb",
+        "time-injected",
+        "converter-is-pure",
+        "mixed-layer-module",
+        "dependency-inversion",
+        "panic-in-domain",
+    ];
+    const WARNS: &[&str] = &[
+        // Decidable, and deliberately a warning: one fake per port is a
+        // convention a team adopts over a refactor, not a property of a build.
+        "port-has-fake",
+        // Heuristics. These can never gate; see the test below.
+        "store-decides",
+        "handler-decides",
+        "service-wraps-one",
+        "fat-trait",
+        "renders-off-store",
+    ];
+
     let r = fixture("ports");
-    let f = rule(&r, "panic-in-domain");
-    assert_eq!(f.tier, Tier::Clippy);
+    let gates: Vec<&str> = r
+        .findings
+        .iter()
+        .filter(|f| f.gates())
+        .map(|f| f.id)
+        .collect();
+    let warns: Vec<&str> = r
+        .findings
+        .iter()
+        .filter(|f| !f.gates())
+        .map(|f| f.id)
+        .collect();
+    assert_eq!(gates, GATES, "the gating set changed; say why in this test");
+    assert_eq!(
+        warns, WARNS,
+        "a rule was added or made advisory; say why here"
+    );
+    assert_eq!(
+        gates.len() + warns.len(),
+        r.findings.len(),
+        "every rule is in exactly one list"
+    );
+}
+
+#[test]
+fn no_heuristic_and_no_delegated_rule_ever_gates() {
+    // This is the invariant that makes `Finding::gates()` worth having. The
+    // rule table is a list someone appends to, and `gate: true` on a heuristic
+    // would be a typo that turns a rule nobody can trust into a rule that
+    // fails CI. Four call sites used to encode the answer separately and agreed
+    // only because the table was consistent.
+    //
+    // Checked over five fixtures because a rule's `status` depends on the
+    // crate: a decidable rule becomes `Delegated` or `Unevaluable` depending on
+    // what it finds, so one crate is not enough to see every combination.
+    for dir in ["leaky", "ports", "gnarly", "mixed", "cohesion"] {
+        for f in &fixture(dir).findings {
+            if f.kind == Kind::Heuristic {
+                assert!(!f.gates(), "heuristic `{}` gates a build", f.id);
+            }
+            if f.status == Status::Delegated {
+                assert!(!f.gates(), "delegated `{}` gates a build", f.id);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_delegated_rule_does_not_gate_even_when_marked_gating() {
+    // `domain-no-io` is decidable and `gate: true` in the rule table, so the
+    // only thing keeping it out of a build's exit code is `Status::Delegated`:
+    // under `crate_graph = "B"` the compiler rejects the import and reporting a
+    // metatron verdict there would overstate what this tool did. This catches
+    // the edit where `gates()` forgets the status.
+    //
+    // It used to use `panic-in-domain`, which passed for the wrong reason — it
+    // was `gate: false` as well as delegated, so the test would have kept
+    // passing if the status check had been deleted.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/leaky");
+    let m = metatron::scan(&dir).unwrap();
+    let mut cfg = Config::load(&dir).unwrap();
+    cfg.crate_graph = "B".into();
+    let report = check(&m, &cfg, &classify(&m, &cfg));
+    let f = rule(&report, "domain-no-io");
+    assert_eq!(f.kind, Kind::Decidable);
     assert_eq!(f.status, Status::Delegated);
-    assert!(f.because.contains("clippy"));
+    assert!(!f.gates());
+    assert!(!f.failed());
+}
+
+#[test]
+fn the_baseline_and_the_scorecard_agree_about_what_gates() {
+    // Two of the four call sites, checked against each other through a real
+    // report: if a rule is in the gating list, its violation is allowed to
+    // change the exit code, and if it is not, the baseline must refuse to
+    // accept it.
+    let report = fixture("leaky");
+    let excluded = metatron::baseline::current(&report);
+    let gating = metatron::baseline::gating_rules(&report);
+
+    for f in &report.findings {
+        let in_baseline_gating = gating.contains(&f.id);
+        assert_eq!(
+            in_baseline_gating,
+            f.gates(),
+            "{}: gating_rules() and gates() disagree",
+            f.id
+        );
+        let refused = excluded.0.contains_key(f.id) || excluded.1.iter().any(|x| x.rule == f.id);
+        assert_eq!(
+            refused,
+            !f.gates(),
+            "{}: baseline::current() disagrees with gates()",
+            f.id
+        );
+    }
 }

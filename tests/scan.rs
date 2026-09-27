@@ -14,7 +14,7 @@ fn sym<'a>(m: &'a Model, id: &str) -> &'a Symbol {
     m.symbol(id).unwrap_or_else(|| panic!("no symbol {id}"))
 }
 
-fn local_edges<'a>(m: &'a Model, kind: EdgeKind) -> Vec<(&'a str, &'a str)> {
+fn local_edges(m: &Model, kind: EdgeKind) -> Vec<(&str, &str)> {
     m.edges
         .iter()
         .filter(|e| e.kind == kind)
@@ -73,12 +73,211 @@ fn macro_generated_items_are_diagnosed_not_dropped_silently() {
 }
 
 #[test]
+fn no_diagnostic_says_nothing_or_stops_halfway() {
+    // A diagnostic is the tool admitting it could not do something, and it is
+    // read in a terminal and in the views. "`T` in " tells the reader that a
+    // path could not be placed and then stops, which is the one thing a
+    // diagnostic must not do: it costs a line of output and returns nothing.
+    // Checked over every fixture, because the empty case is exactly the one a
+    // single fixture would miss.
+    for dir in [
+        "ports",
+        "leaky",
+        "gnarly",
+        "mixed",
+        "cfgd",
+        "dual",
+        "ws-package",
+        "escape",
+        "panics",
+    ] {
+        for d in &fixture(dir).diagnostics {
+            let detail = d.detail.trim();
+            assert!(
+                !detail.is_empty(),
+                "{dir}: {:?} has an empty detail",
+                d.kind
+            );
+            assert!(
+                !detail.ends_with(" in") && !detail.ends_with(" of") && !detail.ends_with(" from"),
+                "{dir}: {:?} stops halfway: {detail:?}",
+                d.kind
+            );
+        }
+    }
+}
+
+#[test]
 fn derives_are_captured() {
     let m = fixture("gnarly");
     let mode = sym(&m, "Mode");
     for d in ["Serialize", "Clone", "Copy", "PartialEq"] {
         assert!(mode.derives.iter().any(|x| x == d), "missing derive {d}");
     }
+}
+
+// ------------------------------------------------------------- entry points
+
+/// Spec 07. Cargo builds a `[[bin]]` whose root is outside `src/`. A scanner
+/// that only looks under `src/` misses it, and reports what it did scan as
+/// though it were the crate.
+#[test]
+fn a_workspace_root_says_which_members_it_did_not_cross_into() {
+    // A crate that is also a workspace root has its own source, so it is
+    // scanned — and the member beside it is a separate crate that is not.
+    let m = fixture("ws-package");
+    assert!(
+        m.symbol("root_fn").is_some(),
+        "the root package should still be scanned"
+    );
+    assert!(
+        m.symbol("inner_fn").is_none(),
+        "the scan crossed into a workspace member"
+    );
+
+    let named: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::TargetSkipped)
+        .filter(|d| d.detail.contains("workspace members"))
+        .collect();
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert!(named[0].detail.contains("inner"), "{}", named[0].detail);
+}
+
+#[test]
+fn a_virtual_manifest_is_an_error_naming_the_members() {
+    // Nothing to model, and a model with zero symbols named "unknown" is a
+    // worse answer than a sentence saying which directory to point at.
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ws-virtual");
+    let err = metatron::scan(&p).expect_err("a virtual manifest should not scan");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("workspace root"), "{msg}");
+    assert!(msg.contains("core") && msg.contains("cli"), "{msg}");
+}
+
+#[test]
+fn a_declared_bin_whose_root_is_outside_src_is_scanned() {
+    let m = fixture("declared");
+
+    let cli = sym(&m, "(bin:cli)::main");
+    assert_eq!(cli.kind, SymbolKind::Fn);
+    assert_eq!(
+        cli.file, "../tools/cli.rs",
+        "a target outside src/ must still be relative to the model root"
+    );
+
+    // And the library is still the crate root, so `use declared::helper` in
+    // the binary resolves rather than becoming a diagnostic.
+    let unresolved: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::UnresolvedPath)
+        .collect();
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+}
+
+#[test]
+fn a_target_that_could_not_be_scanned_is_named() {
+    let m = fixture("declared");
+
+    let skipped: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::TargetSkipped)
+        .collect();
+
+    // The declared path that does not exist.
+    assert!(
+        skipped
+            .iter()
+            .any(|d| d.detail.contains("`gone`") && d.detail.contains("tools/gone.rs")),
+        "a declared path that does not exist was not reported: {skipped:?}"
+    );
+
+    // The example, which exists and is deliberately not architecture. A
+    // decision not to look is still a decision, and it gets a diagnostic.
+    assert!(
+        skipped.iter().any(|d| d.detail.contains("example `demo`")),
+        "not scanning an example was not reported: {skipped:?}"
+    );
+}
+
+/// Spec 07. The scanner used to take the first of `main.rs` / `lib.rs` it
+/// found, so a crate with both targets was analysed minus its entire library —
+/// and reported the result as though it were the whole crate.
+#[test]
+fn a_dual_target_crate_scans_both_roots() {
+    let m = fixture("dual");
+
+    assert_eq!(
+        m.stats.files,
+        2,
+        "expected both src/lib.rs and src/main.rs, got {:?}",
+        m.modules.iter().map(|x| &x.file).collect::<Vec<_>>()
+    );
+
+    // A symbol from each target. The library's port is the one that matters:
+    // if `lib.rs` was skipped, `Greeter` is absent and every rule that needs a
+    // port silently has no premise.
+    assert_eq!(sym(&m, "Greeter").kind, SymbolKind::Trait);
+    assert_eq!(sym(&m, "Console").kind, SymbolKind::Struct);
+    assert_eq!(sym(&m, "greet_all").kind, SymbolKind::Fn);
+
+    // And one from the binary, so the test cannot pass by scanning the crate
+    // root alone and calling it a library. The binary is not the crate root —
+    // the library is — so its symbols carry a synthetic prefix that no path in
+    // source can collide with.
+    assert_eq!(sym(&m, "(bin:main)::main").kind, SymbolKind::Fn);
+}
+
+#[test]
+fn a_dual_target_scan_says_so() {
+    let m = fixture("dual");
+
+    let names: Vec<&str> = m.stats.targets.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["dual", "main"], "the summary must name both roots");
+    assert_eq!(m.stats.targets[0].kind, "lib");
+    assert_eq!(m.stats.targets[0].file, "lib.rs");
+    assert_eq!(m.stats.targets[1].kind, "bin");
+    assert_eq!(m.stats.targets[1].file, "main.rs");
+
+    // Two roots, two module-tree nodes, and neither id borrowed from the other.
+    let roots: Vec<&str> = m
+        .modules
+        .iter()
+        .filter(|x| x.parent.is_none())
+        .map(|x| x.id.as_str())
+        .collect();
+    assert_eq!(roots, ["(crate)", "(bin:main)"]);
+}
+
+#[test]
+fn the_binary_resolves_the_library_by_its_crate_name() {
+    let m = fixture("dual");
+
+    // `use dual::{greet_all, Console, Greeter}` in the binary points at the
+    // library's own crate name. A resolver that does not know the crate calls
+    // itself an external crate and the path becomes a diagnostic.
+    let unresolved: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::UnresolvedPath)
+        .collect();
+    assert!(
+        unresolved.is_empty(),
+        "the binary could not reach its own library: {unresolved:?}"
+    );
+
+    // The `Impl` binding recorded in the library must still be bound, which it
+    // only is if the library's symbols were in the index.
+    let binding = m
+        .impls
+        .iter()
+        .find(|b| b.trait_path.ends_with("Greeter"))
+        .expect("the Impl binding in lib.rs was not recorded");
+    assert_eq!(binding.trait_id.as_deref(), Some("Greeter"));
+    assert_eq!(binding.type_id.as_deref(), Some("Console"));
 }
 
 // ------------------------------------------------------------- the port seam
@@ -133,8 +332,7 @@ fn impl_bound_distinguishes_port_from_concrete() {
     // The use case must not reach a concrete store by any edge kind.
     let uc = "domain::use_cases::activity::start_activity";
     let reaches_concrete = m.edges.iter().any(|e| {
-        e.from == uc
-            && matches!(&e.to, EdgeTarget::Local { id } if id.contains("Sqlite"))
+        e.from == uc && matches!(&e.to, EdgeTarget::Local { id } if id.contains("Sqlite"))
     });
     assert!(!reaches_concrete, "use case named a concrete store");
 
@@ -145,9 +343,9 @@ fn impl_bound_distinguishes_port_from_concrete() {
         .filter(|e| matches!(&e.to, EdgeTarget::Local { id } if id.contains("SqliteActivityStore")))
         .map(|e| e.from.as_str())
         .collect();
-    assert!(names_sqlite.iter().all(|f| f.starts_with("main")
-        || f.starts_with("infra")
-        || *f == "(crate)"));
+    assert!(names_sqlite
+        .iter()
+        .all(|f| f.starts_with("main") || f.starts_with("infra") || *f == "(crate)"));
 }
 
 #[test]
@@ -246,8 +444,8 @@ fn arioch_io_leak_into_app_is_visible() {
             _ => None,
         })
         .collect();
-    assert!(leaks.iter().any(|p| *p == "std::fs::read_to_string"));
-    assert!(leaks.iter().any(|p| *p == "std::process::Command::new"));
+    assert!(leaks.contains(&"std::fs::read_to_string"));
+    assert!(leaks.contains(&"std::process::Command::new"));
 }
 
 #[test]
@@ -283,4 +481,77 @@ fn lcom_inputs_are_populated() {
     let with_calls = methods.iter().filter(|s| !s.self_calls.is_empty()).count();
     assert!(with_fields > 30, "only {with_fields} methods touch a field");
     assert!(with_calls > 20, "only {with_calls} methods call a sibling");
+}
+
+// --------------------------------------------------------------- cfg honesty
+
+#[test]
+fn a_cfg_gated_item_is_recorded_and_the_model_says_it_may_not_compile() {
+    let m = fixture("cfgd");
+
+    // Recorded, not evaluated: the symbol is in the model either way, carrying
+    // its predicate. Removing gated code from the picture would hide more than
+    // it reveals.
+    let fast = sym(&m, "Fast");
+    assert_eq!(fast.kind, SymbolKind::Struct);
+    assert!(
+        fast.cfg.iter().any(|c| c.contains("fast")),
+        "the predicate was dropped: {:?}",
+        fast.cfg
+    );
+
+    // And the model admits the rest of it. One diagnostic per *file*, naming
+    // the count: per-symbol would be six lines of noise that trains the reader
+    // to skip the section.
+    let cfgd: Vec<&Diagnostic> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::CfgExcluded)
+        .collect();
+    assert_eq!(
+        cfgd.len(),
+        2,
+        "expected one per file, not one per symbol: {cfgd:?}"
+    );
+
+    let lib = cfgd.iter().find(|d| d.file == "lib.rs").expect("lib.rs");
+    assert!(lib.line > 0, "a file diagnostic should point at a line");
+    assert!(
+        lib.detail.contains("2 item(s)"),
+        "the count should match the gated symbols: {}",
+        lib.detail
+    );
+
+    let platform = cfgd
+        .iter()
+        .find(|d| d.file == "platform.rs")
+        .expect("platform.rs");
+    assert!(
+        platform.detail.contains("3 item(s)"),
+        "a second file is counted separately: {}",
+        platform.detail
+    );
+
+    for d in &cfgd {
+        assert!(!d.detail.is_empty(), "{d:?}");
+        assert!(
+            d.detail.contains("may not compile") || d.detail.contains("does not compile"),
+            "the diagnostic should say what it means: {}",
+            d.detail
+        );
+    }
+}
+
+#[test]
+fn a_file_with_no_cfg_produces_no_such_diagnostic() {
+    // The negative control. Without it, a scanner that emitted one CfgExcluded
+    // per file unconditionally would pass the test above.
+    let m = fixture("dual");
+    assert!(
+        m.diagnostics
+            .iter()
+            .all(|d| d.kind != DiagnosticKind::CfgExcluded),
+        "a crate with no cfg attributes was reported: {:?}",
+        m.diagnostics
+    );
 }

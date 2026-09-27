@@ -8,6 +8,7 @@
 
 use super::types::path_string;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Expr, ExprCall, ExprField, ExprMethodCall, Member};
 
@@ -27,6 +28,15 @@ pub struct BodyScan {
     /// Enum paths named in `match` arm patterns — `Mode::Normal` yields
     /// `Mode`. Two heuristics need to know what a function branches on.
     pub matches_on: Vec<String>,
+    /// Methods that abort the thread on failure, as `(method, line)`.
+    ///
+    /// Recorded by name rather than resolved, because the receiver's type is
+    /// not inferred: `x.unwrap()` could be `Result::unwrap`, `Option::unwrap`,
+    /// or a domain type's own `unwrap`. The name is enough for the rule that
+    /// wants it — a domain that panics is wrong whichever of the three it is —
+    /// and a guess about which would be the kind of quiet wrong this scanner
+    /// is written to avoid.
+    pub panics: Vec<(String, u32)>,
     /// Dotted access chains two fields deep or more, e.g.
     /// `app.registry.entries`: reaching through one object to get at
     /// another's state.
@@ -59,7 +69,8 @@ impl BodyScan {
         // `b.c`. Keep only the longest form of each chain.
         let all = s.field_chains.clone();
         s.field_chains.retain(|c| {
-            !all.iter().any(|o| o.len() > c.len() && o.ends_with(&format!(".{c}")))
+            !all.iter()
+                .any(|o| o.len() > c.len() && o.ends_with(&format!(".{c}")))
         });
         s
     }
@@ -121,12 +132,12 @@ impl BodyScan {
             // A trailing call is not part of the chain: `entry.tags.join(..)`
             // reaches one field deep and then does something with it,
             // which is not reaching through the object graph.
-            if is_call {
-                chain.pop();
-            } else if matches!(
-                t.get(j),
-                Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis
-            ) {
+            if is_call
+                || matches!(
+                    t.get(j),
+                    Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis
+                )
+            {
                 chain.pop();
             }
             if chain.len() >= 3 {
@@ -139,13 +150,17 @@ impl BodyScan {
 /// `a.b.c` as a string, or `None` if the base is not a plain path.
 fn chain_of(e: &ExprField) -> Option<String> {
     let mut parts = Vec::new();
-    let Member::Named(id) = &e.member else { return None };
+    let Member::Named(id) = &e.member else {
+        return None;
+    };
     parts.push(id.to_string());
     let mut cur = &*e.base;
     loop {
         match cur {
             Expr::Field(f) => {
-                let Member::Named(id) = &f.member else { return None };
+                let Member::Named(id) = &f.member else {
+                    return None;
+                };
                 parts.push(id.to_string());
                 cur = &f.base;
             }
@@ -184,6 +199,10 @@ impl<'ast> Visit<'ast> for BodyScan {
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
+        if is_panic(&node.method.to_string()) {
+            self.panics
+                .push((node.method.to_string(), node.span().start().line as u32));
+        }
         if is_self(&node.receiver) {
             self.self_calls.push(node.method.to_string());
         } else if let Expr::Field(f) = &*node.receiver {
@@ -244,4 +263,11 @@ impl<'ast> Visit<'ast> for BodyScan {
         }
         visit::visit_expr_call(self, node);
     }
+}
+
+/// Methods whose failure mode is to abort rather than return. The rule is not
+/// "is this `Result::unwrap`" — the receiver is untyped here — but "does this
+/// call end the process if it is wrong".
+fn is_panic(method: &str) -> bool {
+    matches!(method, "unwrap" | "expect" | "unwrap_err" | "expect_err")
 }

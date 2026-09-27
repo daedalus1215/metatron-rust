@@ -202,8 +202,9 @@ The numbers above are illustrative. The acceptance criteria below are not.
 ## Out of scope
 
 - Applying the split. This reports; it does not refactor.
-- Cohesion of modules by co-change (that is metatron's logical-coupling spec 03,
-  a git-history analysis, and it is orthogonal).
+- Cohesion of modules by co-change — a git-history analysis, and orthogonal.
+  It is `metatron-nestjs`'s `docs/specs/03-logical-coupling.md`; this repository's
+  own numbering is different, and "spec 03" here means the classifier.
 - Enum variants. LCOM4 is defined over a type's fields; enums are analysed only
   when they carry data and have methods.
 

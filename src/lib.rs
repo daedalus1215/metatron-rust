@@ -51,7 +51,10 @@ pub fn scan(dir: impl AsRef<Path>) -> Result<Model> {
 pub fn check(dir: impl AsRef<Path>) -> Scorecard {
     match scorecard::build(dir.as_ref()) {
         Ok(s) => s,
-        Err(e) => panic!("metatron could not analyse {}: {e:#}", dir.as_ref().display()),
+        Err(e) => panic!(
+            "metatron could not analyse {}: {e:#}",
+            dir.as_ref().display()
+        ),
     }
 }
 
@@ -59,7 +62,9 @@ pub fn check(dir: impl AsRef<Path>) -> Scorecard {
 pub fn cohesion(dir: impl AsRef<Path>) -> CohesionCheck {
     let dir = dir.as_ref();
     match scan(dir) {
-        Ok(m) => CohesionCheck { report: cohesion::analyse(&m) },
+        Ok(m) => CohesionCheck {
+            report: cohesion::analyse(&m),
+        },
         Err(e) => panic!("metatron could not analyse {}: {e:#}", dir.display()),
     }
 }
@@ -78,7 +83,12 @@ impl CohesionCheck {
     /// each extraction as it lands.
     #[track_caller]
     pub fn assert_max_components(&self, ty: &str, max: usize) {
-        let Some(t) = self.report.types.iter().find(|t| t.name == ty || t.symbol == ty) else {
+        let Some(t) = self
+            .report
+            .types
+            .iter()
+            .find(|t| t.name == ty || t.symbol == ty)
+        else {
             panic!(
                 "metatron: no type named `{ty}` was analysed.\n\
                  A type with no methods is not analysed at all (spec 02); \

@@ -32,9 +32,50 @@ struct ModuleCtx {
     uses: HashMap<String, String>,
 }
 
+/// One compilation unit: a root file, and the module path its symbols hang off.
+///
+/// Exactly one target is the crate root and gets an empty prefix, which is what
+/// makes its symbols crate-root-relative — `Greeter`, not `lib::Greeter` — and
+/// the only value that yields a `(crate)` node. The root is the library if the
+/// crate has one, otherwise the default binary, so a crate with only
+/// `src/main.rs` keeps exactly the ids it always had.
+///
+/// Any *further* target gets a synthetic prefix so its symbols cannot collide
+/// with the root's, and so a call inside it still resolves:
+/// `join("(bin:foo)", "helper")` finds the symbol the walk recorded under that
+/// same id.
+struct Target {
+    mod_id: String,
+    path: PathBuf,
+}
+
+impl Target {
+    fn root(path: PathBuf) -> Self {
+        Target {
+            mod_id: String::new(),
+            path,
+        }
+    }
+
+    fn extra(name: &str, path: PathBuf) -> Self {
+        Target {
+            mod_id: format!("(bin:{name})"),
+            path,
+        }
+    }
+}
+
 pub struct Scanner {
     root: PathBuf,
+    /// The crate directory. Only used to make a path outside `src/` — a
+    /// `[[bin]] path = "tools/cli.rs"` — come out relative rather than
+    /// absolute, so the model carries no machine's directory layout.
+    crate_dir: PathBuf,
     project: String,
+    /// `project` with `-` folded to `_`, which is how a crate names itself in
+    /// its own source. Cargo does the folding; we have to match it.
+    self_crate: String,
+    manifest: Manifest,
     extern_crates: BTreeSet<String>,
     symbols: Vec<Symbol>,
     raw_edges: Vec<RawEdge>,
@@ -58,10 +99,16 @@ impl Scanner {
             .canonicalize()
             .with_context(|| format!("no such directory: {}", dir.display()))?;
         let manifest = dir.join("Cargo.toml");
-        let (project, extern_crates) = read_manifest(&manifest)?;
+        let manifest = read_manifest(&manifest)?;
+        let self_crate = manifest.project.replace('-', "_");
+        let project = manifest.project.clone();
+        let extern_crates = manifest.externs.clone();
         Ok(Self {
             root: dir.join("src"),
+            crate_dir: dir,
             project,
+            self_crate,
+            manifest,
             extern_crates,
             symbols: Vec::new(),
             raw_edges: Vec::new(),
@@ -76,14 +123,228 @@ impl Scanner {
         })
     }
 
-    pub fn run(mut self) -> Result<Model> {
-        let entry = ["main.rs", "lib.rs"]
-            .iter()
-            .map(|f| self.root.join(f))
-            .find(|p| p.exists())
-            .with_context(|| format!("no main.rs or lib.rs under {}", self.root.display()))?;
+    /// Every compilation unit in the crate.
+    ///
+    /// A crate is not a file. One with a library and a binary has two roots,
+    /// and taking the first one found means analysing a fraction of the
+    /// source and reporting the result as though it were the whole crate.
+    /// Spec 07.
+    ///
+    /// The first entry is the crate root; the rest are extra targets.
+    fn targets(&mut self) -> Vec<Target> {
+        let src = self.root.clone();
+        let mut root: Option<PathBuf> = None;
+        let mut extra: Vec<(String, PathBuf)> = Vec::new();
 
-        self.walk_module("", &entry, true)?;
+        // A library is the crate root when there is one: a binary can reach
+        // everything in it, nothing can reach into a binary.
+        let lib = src.join("lib.rs");
+        if lib.exists() {
+            root = Some(lib);
+        }
+        let main = src.join("main.rs");
+        if main.exists() {
+            match &root {
+                None => root = Some(main),
+                Some(_) => extra.push(("main".into(), main)),
+            }
+        }
+
+        // `src/bin/*.rs` and `src/bin/<name>/main.rs` are binaries cargo
+        // discovers without being told about them.
+        if let Ok(entries) = std::fs::read_dir(src.join("bin")) {
+            let mut found: Vec<PathBuf> =
+                entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+            found.sort();
+            for path in found {
+                let (name, entry) =
+                    if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("bin")
+                            .to_string();
+                        (stem, path)
+                    } else if path.is_dir() {
+                        let stem = path
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("bin")
+                            .to_string();
+                        let entry = path.join("main.rs");
+                        if !entry.exists() {
+                            continue;
+                        }
+                        (stem, entry)
+                    } else {
+                        continue;
+                    };
+                match &root {
+                    None => root = Some(entry),
+                    Some(_) => extra.push((name, entry)),
+                }
+            }
+        }
+
+        // A declared `[[bin]]` may point anywhere, including outside `src/`.
+        // Cargo would build it, so it is part of the crate.
+        for (name, declared) in self.manifest.bins.clone() {
+            if declared.is_none() && extra.iter().any(|(n, _)| *n == name) {
+                continue; // already covered by auto-discovery
+            }
+            let path = match declared {
+                Some(p) => self.crate_dir.join(p),
+                // No `path`, and auto-discovery did not find it either.
+                None => {
+                    self.skip_target(
+                        &format!("bin `{name}`"),
+                        "declared in Cargo.toml but no src/bin/{name}.rs or src/bin/{name}/main.rs",
+                    );
+                    continue;
+                }
+            };
+            if !path.exists() {
+                self.skip_target(
+                    &format!("bin `{name}`"),
+                    &format!("declared path `{}` does not exist", self.rel(&path)),
+                );
+                continue;
+            }
+            if extra.iter().any(|(_, p)| p == &path) {
+                continue;
+            }
+            match &root {
+                None => root = Some(path),
+                Some(_) => extra.push((name, path)),
+            }
+        }
+
+        // Examples and benches are compiled but are not the architecture. Not
+        // scanning them is a decision, so it is a diagnostic and not a silence.
+        for t in self.manifest.non_architecture.clone() {
+            self.skip_target(&t, "not part of the architecture; not scanned");
+        }
+
+        // A crate that also manages a workspace has its own source, so it is
+        // scannable — and the members beside it are not part of it.
+        self.note_workspace_members();
+
+        let mut out: Vec<Target> = root.map(Target::root).into_iter().collect();
+        out.extend(extra.into_iter().map(|(n, p)| Target::extra(&n, p)));
+        out
+    }
+
+    /// Admit the part of the model that may not compile.
+    ///
+    /// `#[cfg]` is recorded, not evaluated: a symbol keeps its raw predicate so
+    /// a reader can judge it, and the model includes gated code as if it were
+    /// live. That is the useful default — deleting a whole platform's worth of
+    /// code from the picture would hide more than it reveals — but it means a
+    /// symbol can be in the model and not in the binary, and a model that does
+    /// not say so is claiming to be more than it is.
+    ///
+    /// One diagnostic per file, not per symbol. Per-symbol is noise that trains
+    /// the reader to skip the section, which defeats the point of having it.
+    fn note_cfg_gated(&mut self) {
+        // (file, line, predicate) for every symbol carrying a cfg.
+        let mut by_file: BTreeMap<&str, (u32, Vec<&str>)> = BTreeMap::new();
+        for s in &self.symbols {
+            if s.cfg.is_empty() {
+                continue;
+            }
+            let e = by_file.entry(&s.file).or_insert((s.line, Vec::new()));
+            e.0 = e.0.min(s.line);
+            for c in &s.cfg {
+                if !e.1.contains(&c.as_str()) {
+                    e.1.push(c);
+                }
+            }
+        }
+
+        for (file, (line, preds)) in by_file {
+            let n = self
+                .symbols
+                .iter()
+                .filter(|s| s.file == file && !s.cfg.is_empty())
+                .count();
+            let shown: Vec<String> = preds.iter().take(3).map(|p| format!("`{p}`")).collect();
+            let mut list = shown.join(", ");
+            if preds.len() > shown.len() {
+                list.push_str(&format!(" and {} more", preds.len() - shown.len()));
+            }
+            self.diagnostics.push(Diagnostic {
+                kind: DiagnosticKind::CfgExcluded,
+                file: file.to_string(),
+                line,
+                detail: format!(
+                    "{n} item(s) sit behind a cfg predicate ({list}), so the model \
+                     may describe code that this build does not compile. \
+                     Each symbol keeps its predicate in `cfg`."
+                ),
+            });
+        }
+    }
+
+    fn skip_target(&mut self, target: &str, why: &str) {
+        self.diagnostics.push(Diagnostic {
+            kind: DiagnosticKind::TargetSkipped,
+            file: "Cargo.toml".into(),
+            line: 0,
+            detail: format!("{target} was not scanned: {why}"),
+        });
+    }
+
+    /// True when this directory manages other crates. Resolving the whole
+    /// workspace graph is a dependency this project declined, so the honest
+    /// substitute is naming the members rather than looking like it crossed
+    /// into them.
+    fn is_workspace_root(&self) -> bool {
+        !self.manifest.members.is_empty()
+    }
+
+    fn note_workspace_members(&mut self) {
+        if !self.is_workspace_root() {
+            return;
+        }
+        let members = self.manifest.members.join(", ");
+        self.skip_target(
+            "workspace members",
+            &format!(
+                "{members} — each is a separate crate with its own architecture; \
+                 point metatron at one of them to scan it"
+            ),
+        );
+    }
+
+    pub fn run(mut self) -> Result<Model> {
+        let targets = self.targets();
+        if targets.is_empty() {
+            // A virtual manifest: a workspace root with no crate of its own.
+            // There is nothing here to model, and a model with zero symbols
+            // and the name "unknown" is a worse answer than a sentence saying
+            // which directory to point at instead.
+            anyhow::ensure!(
+                !self.is_workspace_root(),
+                "{} is a workspace root with no package of its own.\n\
+                 Members are separate crates: point metatron at one of them.\n  {}",
+                self.crate_dir.display(),
+                self.manifest
+                    .members
+                    .iter()
+                    .map(|m| format!("  {}", self.crate_dir.join(m).display()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            anyhow::bail!(
+                "no lib.rs, main.rs, or src/bin/* under {}",
+                self.root.display()
+            );
+        }
+        for t in &targets {
+            self.walk_module(&t.mod_id, &t.path, true)?;
+        }
+
+        self.note_cfg_gated();
 
         let (edges, externs) = self.resolve();
 
@@ -103,19 +364,29 @@ impl Scanner {
             .filter(|s| matches!(s.kind, SymbolKind::Fn | SymbolKind::Method))
             .count();
 
+        let stats = Stats {
+            files: self.files,
+            modules: self.modules.len(),
+            symbols: self.symbols.len(),
+            types,
+            fns,
+            edges: edges.len(),
+            loc: self.total_loc,
+            targets: targets
+                .iter()
+                .map(|t| TargetInfo {
+                    kind: if t.mod_id.is_empty() { "lib" } else { "bin" }.into(),
+                    name: target_name(&t.mod_id, &self.project),
+                    file: self.rel(&t.path),
+                })
+                .collect(),
+        };
+
         Ok(Model {
             project: self.project,
             root: self.root.display().to_string(),
             generated_at: None,
-            stats: Stats {
-                files: self.files,
-                modules: self.modules.len(),
-                symbols: self.symbols.len(),
-                types,
-                fns,
-                edges: edges.len(),
-                loc: self.total_loc,
-            },
+            stats,
             modules: self.modules,
             symbols: self.symbols,
             edges,
@@ -191,17 +462,15 @@ impl Scanner {
                         Some((_, inner)) => {
                             self.items(inner, &child, rel, file, is_root, test)?;
                         }
-                        None => {
-                            match self.module_file(file, mod_id, &name, is_root, &m.attrs) {
-                                Some(path) => self.walk_module(&child, &path, false)?,
-                                None => self.diagnostics.push(Diagnostic {
-                                    kind: DiagnosticKind::MissingModule,
-                                    file: rel.into(),
-                                    line: m.span().start().line as u32,
-                                    detail: format!("`mod {name};` has no matching file"),
-                                }),
-                            }
-                        }
+                        None => match self.module_file(file, mod_id, &name, is_root, &m.attrs) {
+                            Some(path) => self.walk_module(&child, &path, false)?,
+                            None => self.diagnostics.push(Diagnostic {
+                                kind: DiagnosticKind::MissingModule,
+                                file: rel.into(),
+                                line: m.span().start().line as u32,
+                                detail: format!("`mod {name};` has no matching file"),
+                            }),
+                        },
                     }
                 }
                 syn::Item::Use(u) => self.use_item(u, mod_id, rel, in_test),
@@ -227,6 +496,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(s.span()),
                     });
                     let id = join(mod_id, &s.ident.to_string());
@@ -272,6 +542,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(e.span()),
                     });
                 }
@@ -297,6 +568,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(t.span()),
                     });
                     for ti in &t.items {
@@ -324,6 +596,7 @@ impl Scanner {
                                 field_chains: vec![],
                                 self_fields: vec![],
                                 self_calls: vec![],
+                                panics: vec![],
                                 loc: span_loc(f.span()),
                             });
                         }
@@ -350,6 +623,7 @@ impl Scanner {
                         field_chains: vec![],
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: vec![],
                         loc: span_loc(u.span()),
                     });
                 }
@@ -373,6 +647,7 @@ impl Scanner {
                     field_chains: vec![],
                     self_fields: vec![],
                     self_calls: vec![],
+                    panics: vec![],
                     loc: span_loc(t.span()),
                 }),
                 syn::Item::Fn(f) => {
@@ -416,6 +691,7 @@ impl Scanner {
                         field_chains: scan.field_chains,
                         self_fields: vec![],
                         self_calls: vec![],
+                        panics: scan.panics,
                         loc: span_loc(f.span()),
                     });
                 }
@@ -449,6 +725,7 @@ impl Scanner {
                     field_chains: vec![],
                     self_fields: vec![],
                     self_calls: vec![],
+                    panics: vec![],
                     loc: span_loc(s.span()),
                 }),
                 syn::Item::Const(c) => self.push(Symbol {
@@ -471,6 +748,7 @@ impl Scanner {
                     field_chains: vec![],
                     self_fields: vec![],
                     self_calls: vec![],
+                    panics: vec![],
                     loc: span_loc(c.span()),
                 }),
                 syn::Item::Macro(m) => {
@@ -575,6 +853,7 @@ impl Scanner {
                     field_chains: scan.field_chains,
                     self_fields: scan.self_fields,
                     self_calls: scan.self_calls,
+                    panics: scan.panics,
                     loc: span_loc(f.span()),
                 });
             }
@@ -665,12 +944,15 @@ impl Scanner {
 
     fn resolve(&mut self) -> (Vec<Edge>, BTreeMap<String, usize>) {
         let index: BTreeSet<String> = self.symbols.iter().map(|s| s.id.clone()).collect();
+        // Synthetic root ids — `(crate)`, `(bin:main)` — are never written in
+        // source, so matching a path against them can only produce a false hit.
         let mods: BTreeSet<String> = self
             .modules
             .iter()
             .map(|m| m.id.clone())
-            .filter(|m| m != "(crate)")
+            .filter(|m| !m.starts_with('('))
             .collect();
+        let self_crate = self.self_crate.clone();
 
         let mut externs: BTreeMap<String, usize> = BTreeMap::new();
         let mut edges = Vec::new();
@@ -678,13 +960,70 @@ impl Scanner {
 
         // Primitives and common std prelude names are not architecture.
         let ignore: BTreeSet<&str> = [
-            "Self", "self", "String", "str", "bool", "usize", "u8", "u16", "u32", "u64", "i8",
-            "i16", "i32", "i64", "f32", "f64", "char", "Vec", "Option", "Some", "None", "Result",
-            "Ok", "Err", "Box", "HashMap", "HashSet", "BTreeMap", "BTreeSet", "PathBuf", "Path",
-            "Duration", "Default", "Clone", "Copy", "Debug", "PartialEq", "Eq", "Hash", "Ord",
-            "PartialOrd", "From", "Into", "Iterator", "ToString", "Display", "Drop", "Send",
-            "Sync", "Sized", "Fn", "FnMut", "FnOnce", "Cow", "Rc", "Arc", "RefCell", "Cell",
-            "Mutex", "RwLock", "OnceCell", "Ordering", "SystemTime", "Instant",
+            "Self",
+            "self",
+            "String",
+            "str",
+            "bool",
+            "usize",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "f32",
+            "f64",
+            "char",
+            "Vec",
+            "Option",
+            "Some",
+            "None",
+            "Result",
+            "Ok",
+            "Err",
+            "Box",
+            "HashMap",
+            "HashSet",
+            "BTreeMap",
+            "BTreeSet",
+            "PathBuf",
+            "Path",
+            "Duration",
+            "Default",
+            "Clone",
+            "Copy",
+            "Debug",
+            "PartialEq",
+            "Eq",
+            "Hash",
+            "Ord",
+            "PartialOrd",
+            "From",
+            "Into",
+            "Iterator",
+            "ToString",
+            "Display",
+            "Drop",
+            "Send",
+            "Sync",
+            "Sized",
+            "Fn",
+            "FnMut",
+            "FnOnce",
+            "Cow",
+            "Rc",
+            "Arc",
+            "RefCell",
+            "Cell",
+            "Mutex",
+            "RwLock",
+            "OnceCell",
+            "Ordering",
+            "SystemTime",
+            "Instant",
         ]
         .into_iter()
         .collect();
@@ -697,7 +1036,7 @@ impl Scanner {
                 .cloned()
                 .unwrap_or_default();
 
-            match resolve_path(&re.raw, &re.module, &uses, &index, &mods) {
+            match resolve_path(&re.raw, &re.module, &uses, &index, &mods, &self_crate) {
                 Res::Local(id) => edges.push(Edge {
                     from: re.from.clone(),
                     to: EdgeTarget::Local { id },
@@ -724,11 +1063,20 @@ impl Scanner {
                             resolved: true,
                         });
                     } else if is_architectural(&full, &ignore) {
+                        // `module` is empty for an item at the crate root, and
+                        // "in " with nothing after it is a sentence that stops
+                        // halfway. The file and line are on the diagnostic
+                        // already, so name the module only when there is one.
+                        let in_module = if re.module.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" in {}", re.module)
+                        };
                         unresolved.push(Diagnostic {
                             kind: DiagnosticKind::UnresolvedPath,
                             file: re.file.clone(),
                             line: re.line,
-                            detail: format!("`{}` in {}", full, re.module),
+                            detail: format!("`{}` could not be placed{}", full, in_module),
                         });
                     }
                 }
@@ -739,12 +1087,26 @@ impl Scanner {
         let mods_c = mods.clone();
         let ctx = std::mem::take(&mut self.mod_ctx);
         for b in &mut self.impls {
-            let uses = ctx.get(&b.module).map(|c| c.uses.clone()).unwrap_or_default();
-            b.trait_id = match resolve_path(&b.trait_path, &b.module, &uses, &index, &mods_c) {
+            let uses = ctx
+                .get(&b.module)
+                .map(|c| c.uses.clone())
+                .unwrap_or_default();
+            b.trait_id = match resolve_path(
+                &b.trait_path,
+                &b.module,
+                &uses,
+                &index,
+                &mods_c,
+                &self_crate,
+            ) {
                 Res::Local(id) => Some(id),
                 Res::Path(_) => None,
             };
-            if b.type_id.as_deref().map(|i| !index.contains(i)).unwrap_or(true) {
+            if b.type_id
+                .as_deref()
+                .map(|i| !index.contains(i))
+                .unwrap_or(true)
+            {
                 b.type_id = None;
             }
         }
@@ -755,10 +1117,21 @@ impl Scanner {
     }
 
     fn rel(&self, p: &Path) -> String {
-        p.strip_prefix(&self.root)
-            .unwrap_or(p)
-            .display()
-            .to_string()
+        // Every path in the model is relative to `src/`, which is what
+        // `Model.root` says the coordinate system is. A declared target
+        // outside `src/` — `[[bin]] path = "tools/cli.rs"` — is written
+        // `../tools/cli.rs` rather than switched to a second base, so the model
+        // has one convention and a reader can see at a glance that the file is
+        // outside the scanned root.
+        if let Ok(rel) = p.strip_prefix(&self.root) {
+            return rel.display().to_string();
+        }
+        match p.strip_prefix(&self.crate_dir) {
+            Ok(rel) => format!("../{}", rel.display()),
+            // Outside the crate entirely, which no target should be. Better an
+            // odd path than a wrong one.
+            Err(_) => p.display().to_string(),
+        }
     }
 
     fn module_file(
@@ -791,12 +1164,12 @@ impl Scanner {
         } else {
             dir.join(stem)
         };
-        for cand in [base.join(format!("{name}.rs")), base.join(name).join("mod.rs")] {
-            if cand.exists() {
-                return Some(cand);
-            }
-        }
-        None
+        [
+            base.join(format!("{name}.rs")),
+            base.join(name).join("mod.rs"),
+        ]
+        .into_iter()
+        .find(|c| c.exists())
     }
 }
 
@@ -819,6 +1192,7 @@ fn resolve_path(
     uses: &HashMap<String, String>,
     index: &BTreeSet<String>,
     mods: &BTreeSet<String>,
+    self_crate: &str,
 ) -> Res {
     let raw = raw.trim_start_matches("::");
     let segs: Vec<&str> = raw.split("::").collect();
@@ -834,10 +1208,30 @@ fn resolve_path(
         "crate" => rest(1),
         "self" => join(module, &rest(1)),
         "super" => join(&parent_of(module).unwrap_or_default(), &rest(1)),
+        // A binary reaches its own library by the crate's name. That name is
+        // not a dependency and not a module, so without this arm it falls
+        // through to `is_architectural` and becomes a diagnostic about a path
+        // that is perfectly well resolvable.
+        _ if head == self_crate => rest(1),
         _ => {
             if let Some(mapped) = uses.get(head) {
-                let local = mapped.trim_start_matches("crate::").to_string();
-                let expanded = if segs.len() == 1 { local } else { join(&local, &rest(1)) };
+                let mut local = mapped.trim_start_matches("crate::").to_string();
+                // `use dual::greet_all` records `greet_all -> dual::greet_all`.
+                // The crate's own name is not a module, so the prefix has to
+                // come off before the path can be looked up in the crate.
+                if let Some(rest) = local
+                    .strip_prefix(self_crate)
+                    .and_then(|r| r.strip_prefix("::"))
+                {
+                    local = rest.to_string();
+                } else if local == self_crate {
+                    local = String::new();
+                }
+                let expanded = if segs.len() == 1 {
+                    local
+                } else {
+                    join(&local, &rest(1))
+                };
                 match lookup(&expanded, index, mods) {
                     Some(id) => return Res::Local(id),
                     // Not local, so the `use` pointed outside the crate. The
@@ -1083,6 +1477,19 @@ fn parent_of(id: &str) -> Option<String> {
     id.rfind("::").map(|i| id[..i].to_string())
 }
 
+/// The cargo target name behind a module id. The root is the library, named
+/// for the package; the rest are binaries, and their id already carries the
+/// name cargo gave them.
+fn target_name(mod_id: &str, project: &str) -> String {
+    match mod_id
+        .strip_prefix("(bin:")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        Some(n) => n.to_string(),
+        None => project.replace('-', "_"),
+    }
+}
+
 fn last_seg(p: &str) -> &str {
     p.rsplit("::").next().unwrap_or(p)
 }
@@ -1096,9 +1503,23 @@ fn extern_key(path: &str) -> String {
     }
 }
 
-fn read_manifest(p: &Path) -> Result<(String, BTreeSet<String>)> {
-    let src = std::fs::read_to_string(p)
-        .with_context(|| format!("no Cargo.toml at {}", p.display()))?;
+/// What `Cargo.toml` says about the crate, as far as the scanner cares.
+struct Manifest {
+    project: String,
+    externs: BTreeSet<String>,
+    /// `[[bin]]` entries: the declared name, and its `path` if it has one.
+    bins: Vec<(String, Option<String>)>,
+    /// `[[example]]` and `[[bench]]` names. Compiled by cargo, not part of
+    /// the architecture, and not scanned — which is a thing to say out loud.
+    non_architecture: Vec<String>,
+    /// `[workspace] members`. Each is a separate crate with its own
+    /// architecture, and this scan does not cross into them.
+    members: Vec<String>,
+}
+
+fn read_manifest(p: &Path) -> Result<Manifest> {
+    let src =
+        std::fs::read_to_string(p).with_context(|| format!("no Cargo.toml at {}", p.display()))?;
     let v: toml::Value = src.parse().context("Cargo.toml is not valid TOML")?;
     let name = v
         .get("package")
@@ -1106,13 +1527,53 @@ fn read_manifest(p: &Path) -> Result<(String, BTreeSet<String>)> {
         .and_then(|n| n.as_str())
         .unwrap_or("unknown")
         .to_string();
-    let mut deps = BTreeSet::new();
+    let mut externs = BTreeSet::new();
     for table in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(t) = v.get(table).and_then(|d| d.as_table()) {
             for k in t.keys() {
-                deps.insert(k.replace('-', "_"));
+                externs.insert(k.replace('-', "_"));
             }
         }
     }
-    Ok((name, deps))
+
+    let str_of = |t: &toml::Value, k: &str| t.get(k).and_then(|x| x.as_str()).map(String::from);
+
+    let mut bins = Vec::new();
+    if let Some(list) = v.get("bin").and_then(|b| b.as_array()) {
+        for b in list {
+            let Some(declared) = b.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            bins.push((declared.to_string(), str_of(b, "path")));
+        }
+    }
+    let mut non_architecture = Vec::new();
+    for key in ["example", "bench"] {
+        if let Some(list) = v.get(key).and_then(|b| b.as_array()) {
+            for t in list {
+                if let Some(n) = t.get("name").and_then(|n| n.as_str()) {
+                    non_architecture.push(format!("{key} `{n}`"));
+                }
+            }
+        }
+    }
+
+    let members = v
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(Manifest {
+        project: name,
+        externs,
+        bins,
+        non_architecture,
+        members,
+    })
 }

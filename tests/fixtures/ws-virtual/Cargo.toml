@@ -1,0 +1,5 @@
+# A virtual manifest: a workspace root with no package of its own. There is no
+# crate here to scan, and the two members are the actual code.
+[workspace]
+members = ["core", "cli"]
+resolver = "2"
