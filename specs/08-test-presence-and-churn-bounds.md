@@ -151,11 +151,15 @@ Churn {
 }
 ```
 
-`reason` is not optional. "git is not installed", "`path` has no commits",
-"the log covered 0 files" are three different absences and a reader who is told
-only that churn is unavailable cannot tell whether the crate is untracked or the
-tool is broken. This is spec 07's exit-2 instinct applied to a field that never
-had an error channel.
+`reason` is not optional. "git is not installed", "this repository has no
+commits", and "no commit touches `src`" are three different absences, and a
+reader told only that churn is unavailable cannot tell whether the crate is
+untracked or the tool is broken. The middle case is worth noting: a repository
+with no commits makes `git log` *fail* rather than return an empty log, so the
+reason in that case is git's own sentence rather than a phrase invented here.
+That is the better answer — it is the tool that knows, and its wording is
+specific. This is spec 07's exit-2 instinct applied to a field that never had an
+error channel.
 
 The ranking moves with it. `commits * (1 + deps)` is computed in
 `templates/hotspots.html:200` and must become a Rust function that both the view's

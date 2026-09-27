@@ -24,6 +24,7 @@
 //! the working tree is a bad test.
 
 pub mod baseline;
+pub mod churn;
 pub mod classify;
 pub mod cohesion;
 pub mod model;

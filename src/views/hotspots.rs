@@ -4,22 +4,23 @@
 //! depends on is a problem in any language.
 
 use super::{stats, tier_index, tiers, Stats, Tier};
+use crate::churn::{Churn, FileChurn};
 use crate::scorecard::Scorecard;
 use anyhow::Result;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
 
-#[derive(Serialize, Default, Clone)]
-pub struct Churn {
+#[derive(Serialize)]
+pub struct ChurnMeta {
+    pub since: String,
     pub commits: usize,
-    pub added: usize,
-    pub removed: usize,
-    pub first: String,
-    pub last: String,
-    #[serde(rename = "authorCount")]
-    pub author_count: usize,
+    pub files: usize,
+    pub available: bool,
+    /// Why churn is unavailable. Spec 08: an empty scatter under a caption
+    /// about churn is a picture of nothing, and the reader cannot tell an
+    /// untracked crate from a broken tool.
+    pub reason: String,
 }
 
 #[derive(Serialize)]
@@ -30,14 +31,6 @@ pub struct FileNode {
     pub t: usize,
     pub cls: String,
     pub loc: u32,
-}
-
-#[derive(Serialize)]
-pub struct ChurnMeta {
-    pub since: String,
-    pub commits: usize,
-    pub files: usize,
-    pub available: bool,
 }
 
 #[derive(Serialize)]
@@ -53,7 +46,7 @@ pub struct Hotspots {
     pub file_nodes: Vec<FileNode>,
     #[serde(rename = "fileLinks")]
     pub file_links: Vec<(String, String)>,
-    pub churn: BTreeMap<String, Churn>,
+    pub churn: BTreeMap<String, FileChurn>,
     #[serde(rename = "churnMeta")]
     pub churn_meta: ChurnMeta,
 }
@@ -62,77 +55,12 @@ pub struct Hotspots {
 /// and have no commits of its own, which draws an empty scatter and calls
 /// it a view.
 pub fn has_history(dir: &Path, root: &str) -> bool {
-    !churn(dir, root).is_empty()
-}
-
-/// `git log --numstat`, parsed. Read-only, and a missing or empty history
-/// yields an empty map rather than an error — a crate does not have to be
-/// in git to be analysed.
-fn churn(dir: &Path, root: &str) -> BTreeMap<String, Churn> {
-    let out = Command::new("git")
-        .args([
-            "log",
-            "--no-merges",
-            "--numstat",
-            "--format=%x01%H%x01%an%x01%ad",
-            "--date=short",
-            "--",
-            root,
-        ])
-        .current_dir(dir)
-        .output();
-    let Ok(out) = out else { return BTreeMap::new() };
-    if !out.status.success() {
-        return BTreeMap::new();
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-
-    let mut map: BTreeMap<String, Churn> = BTreeMap::new();
-    let mut authors: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
-    let (mut author, mut date) = (String::new(), String::new());
-
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix('\u{1}') {
-            let mut p = rest.split('\u{1}');
-            let _hash = p.next();
-            author = p.next().unwrap_or("").to_string();
-            date = p.next().unwrap_or("").to_string();
-            continue;
-        }
-        let mut f = line.split('\t');
-        let (Some(a), Some(r), Some(path)) = (f.next(), f.next(), f.next()) else {
-            continue;
-        };
-        // A binary file shows `-` for both counts.
-        let (a, r) = (
-            a.parse::<usize>().unwrap_or(0),
-            r.parse::<usize>().unwrap_or(0),
-        );
-        let rel = path
-            .strip_prefix(&format!("{root}/"))
-            .unwrap_or(path)
-            .to_string();
-        let e = map.entry(rel.clone()).or_default();
-        e.commits += 1;
-        e.added += a;
-        e.removed += r;
-        if e.last.is_empty() {
-            e.last = date.clone(); // git log is newest-first
-        }
-        e.first = date.clone();
-        authors.entry(rel).or_default().insert(author.clone());
-    }
-    for (f, set) in authors {
-        if let Some(e) = map.get_mut(&f) {
-            e.author_count = set.len();
-        }
-    }
-    map
+    Churn::has_commits(dir, root)
 }
 
 pub fn build(s: &Scorecard) -> Result<Hotspots> {
     let unclassified = s.config.layers.len();
-    let ch = churn(&s.dir, &s.config.root);
+    let ch = Churn::measure(&s.dir, &s.config.root, &s.model);
 
     let file_nodes: Vec<FileNode> = s
         .model
@@ -187,13 +115,6 @@ pub fn build(s: &Scorecard) -> Result<Hotspots> {
     file_links.sort();
     file_links.dedup();
 
-    let commits: usize = ch.values().map(|c| c.commits).sum();
-    let since = ch
-        .values()
-        .map(|c| c.first.clone())
-        .min()
-        .unwrap_or_default();
-
     Ok(Hotspots {
         generated_at: crate::baseline::now_iso(),
         project: s.model.project.clone(),
@@ -204,11 +125,12 @@ pub fn build(s: &Scorecard) -> Result<Hotspots> {
         file_nodes,
         file_links,
         churn_meta: ChurnMeta {
-            since,
-            commits,
-            files: ch.len(),
-            available: !ch.is_empty(),
+            since: ch.window.since.clone(),
+            commits: ch.window.commits,
+            files: ch.window.files,
+            available: ch.available,
+            reason: ch.reason.clone(),
         },
-        churn: ch,
+        churn: ch.files,
     })
 }
