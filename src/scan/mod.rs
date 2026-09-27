@@ -1063,11 +1063,20 @@ impl Scanner {
                             resolved: true,
                         });
                     } else if is_architectural(&full, &ignore) {
+                        // `module` is empty for an item at the crate root, and
+                        // "in " with nothing after it is a sentence that stops
+                        // halfway. The file and line are on the diagnostic
+                        // already, so name the module only when there is one.
+                        let in_module = if re.module.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" in {}", re.module)
+                        };
                         unresolved.push(Diagnostic {
                             kind: DiagnosticKind::UnresolvedPath,
                             file: re.file.clone(),
                             line: re.line,
-                            detail: format!("`{}` in {}", full, re.module),
+                            detail: format!("`{}` could not be placed{}", full, in_module),
                         });
                     }
                 }

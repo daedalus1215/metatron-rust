@@ -73,6 +73,41 @@ fn macro_generated_items_are_diagnosed_not_dropped_silently() {
 }
 
 #[test]
+fn no_diagnostic_says_nothing_or_stops_halfway() {
+    // A diagnostic is the tool admitting it could not do something, and it is
+    // read in a terminal and in the views. "`T` in " tells the reader that a
+    // path could not be placed and then stops, which is the one thing a
+    // diagnostic must not do: it costs a line of output and returns nothing.
+    // Checked over every fixture, because the empty case is exactly the one a
+    // single fixture would miss.
+    for dir in [
+        "ports",
+        "leaky",
+        "gnarly",
+        "mixed",
+        "cfgd",
+        "dual",
+        "ws-package",
+        "escape",
+        "panics",
+    ] {
+        for d in &fixture(dir).diagnostics {
+            let detail = d.detail.trim();
+            assert!(
+                !detail.is_empty(),
+                "{dir}: {:?} has an empty detail",
+                d.kind
+            );
+            assert!(
+                !detail.ends_with(" in") && !detail.ends_with(" of") && !detail.ends_with(" from"),
+                "{dir}: {:?} stops halfway: {detail:?}",
+                d.kind
+            );
+        }
+    }
+}
+
+#[test]
 fn derives_are_captured() {
     let m = fixture("gnarly");
     let mode = sym(&m, "Mode");
