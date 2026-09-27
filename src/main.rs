@@ -103,6 +103,41 @@ enum Cmd {
 const REGRESSION: u8 = 1;
 const NO_ANSWER: u8 = 2;
 
+/// Above this share of unmatched symbols, a command that is not `classify`
+/// names the groups. Below it, it stays quiet: three stragglers in an
+/// otherwise-clean crate is a fact, not an accusation, and a warning that fires
+/// on nearly every crate is a warning nobody reads.
+const UNMATCHED_WORTH_WARNING: f64 = 10.0;
+
+/// The unmatched-symbol section, shared by the three commands that can know
+/// about it. `classify` prints it unconditionally — naming what it could not
+/// place *is* its job. The others pass `always = false` and get it only past the
+/// threshold.
+///
+/// All three group by file, count, and show one worked example, and all three
+/// name `metatron.toml` as the place to fix it, so the same number never
+/// arrives with different advice attached.
+fn print_gaps(cov: &metatron::classify::Coverage, total_unmatched: usize, always: bool) {
+    if cov.gaps.is_empty() {
+        return;
+    }
+    if !always && cov.ratio() * 100.0 > 100.0 - UNMATCHED_WORTH_WARNING {
+        return;
+    }
+    println!();
+    println!(
+        "  {total_unmatched} symbol(s) matched no pattern, in {} file(s):",
+        cov.gaps.len()
+    );
+    for (file, n, example) in cov.gaps.iter().take(12) {
+        println!("    {file:<28} {n:>4}x   e.g. {example}");
+    }
+    if cov.gaps.len() > 12 {
+        println!("    ... and {} more file(s)", cov.gaps.len() - 12);
+    }
+    println!("    Add a pattern in metatron.toml, or `metatron classify --verbose` for each one.");
+}
+
 fn main() -> std::process::ExitCode {
     match run() {
         Ok(code) => std::process::ExitCode::from(code),
@@ -210,6 +245,7 @@ fn run() -> Result<u8> {
             c.coverage.ratio() * 100.0,
             c.coverage.ports
         );
+        print_gaps(&c.coverage, c.unmatched.len(), false);
     }
 
     if model.impls.is_empty() {
@@ -378,6 +414,7 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<u8> {
             "  !"
         }
     );
+    print_gaps(cov, c.unmatched.len(), true);
 
     if !cov.by_layer.is_empty() {
         println!();
@@ -415,18 +452,10 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<u8> {
     }
 
     if !c.unmatched.is_empty() {
-        println!();
-        println!(
-            "  {} symbols matched no pattern. Add them to [[add_pattern]] in metatron.toml:",
-            c.unmatched.len()
-        );
+        print_gaps(cov, c.unmatched.len(), true);
         if verbose {
             for u in &c.unmatched {
                 println!("    {}:{:<5} {:?} {}", u.file, u.line, u.kind, u.name);
-            }
-        } else {
-            for (label, n, example) in cov.gaps.iter().take(12) {
-                println!("    {label:<28} {n:>4}x   e.g. {example}");
             }
         }
     }
@@ -527,6 +556,9 @@ fn check(
             "  !"
         }
     );
+    // The `!` says "not all of it". This says which files, because a reader
+    // who has not run `classify` cannot act on a bare percentage.
+    print_gaps(cov, s.classified.unmatched.len(), false);
     println!();
     println!(
         "  rules       {:>6}     upheld {} · violated {} · unevaluable {} · pass {}",

@@ -534,15 +534,15 @@ pub fn classify(model: &Model, cfg: &Config) -> Classified {
         *by_layer.entry(c.layer.clone()).or_default() += 1;
     }
 
-    // Group the gaps so the report is a to-do list, not a dump.
+    // Group the gaps so the report is a to-do list, not a dump. The unit is
+    // the *file*, because a file is what a reader opens to fix this: "struct
+    // in src/infra" tells you a shape you have already seen, while
+    // "src/infra/sql.rs" tells you where to go. The example names one symbol
+    // so the group is concrete.
     let mut gaps: BTreeMap<String, (usize, String)> = BTreeMap::new();
     for u in &unmatched {
-        let dir = match u.file.rfind('/') {
-            Some(i) => &u.file[..i],
-            None => "src/ root",
-        };
         let e = gaps
-            .entry(format!("{:?} in {dir}", u.kind).to_lowercase())
+            .entry(u.file.clone())
             .or_insert((0, format!("{}:{} {}", u.file, u.line, u.name)));
         e.0 += 1;
     }

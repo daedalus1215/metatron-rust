@@ -262,3 +262,48 @@ fn the_evaluable_flag_applies_to_the_json_path_too() {
         0
     );
 }
+
+#[test]
+fn a_mostly_unclassified_crate_names_its_worst_files() {
+    // A percentage is a fact you cannot act on. The groups say where to open
+    // the file, and name the config that would fix it.
+    let out = run(&["check", "tests/fixtures/gnarly"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("matched no pattern"),
+        "a crate 80% unclassified did not say so:\n{stdout}"
+    );
+    assert!(stdout.contains("main.rs"), "{stdout}");
+    assert!(stdout.contains("metatron.toml"), "{stdout}");
+    assert!(stdout.contains("e.g."), "no worked example:\n{stdout}");
+}
+
+#[test]
+fn a_crate_under_the_threshold_is_not_scolded() {
+    // Three stragglers in an otherwise-clean crate is a fact, not an
+    // accusation. A warning that fires on nearly every crate is a warning
+    // nobody reads, and this one would fire on every real project.
+    let out = run(&["check", "tests/fixtures/ports"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("matched no pattern"),
+        "a fully classified crate was warned about:\n{stdout}"
+    );
+}
+
+#[test]
+fn scan_names_the_unmatched_files_too() {
+    // `scan` prints the coverage number too, so it owes the same explanation.
+    // With --stdout there is no report at all, only the model, so that case
+    // asserts the scan ran instead.
+    let json = run(&["scan", "--stdout", "tests/fixtures/gnarly"]);
+    let json = String::from_utf8_lossy(&json.stdout);
+    assert!(json.starts_with('{'), "{}", &json[..json.len().min(80)]);
+
+    let out = run(&["scan", "tests/fixtures/gnarly"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("matched no pattern") && stdout.contains("main.rs"),
+        "{stdout}"
+    );
+}
