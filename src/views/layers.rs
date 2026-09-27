@@ -147,7 +147,10 @@ pub fn build(s: &Scorecard) -> Layers {
             continue;
         }
         for i in &f.instances {
-            flagged.entry(i.from.as_str()).or_default().push(f.id.to_string());
+            flagged
+                .entry(i.from.as_str())
+                .or_default()
+                .push(f.id.to_string());
         }
     }
 
@@ -170,7 +173,10 @@ pub fn build(s: &Scorecard) -> Layers {
             i,
             f: x.file.clone(),
             m: super::mod_label(&x.module, &s.model.project),
-            p: s.classified.pattern_of(&x.id).unwrap_or("unclassified").to_string(),
+            p: s.classified
+                .pattern_of(&x.id)
+                .unwrap_or("unclassified")
+                .to_string(),
             t,
             cls: x.name.clone(),
             loc: x.loc,
@@ -185,7 +191,9 @@ pub fn build(s: &Scorecard) -> Layers {
     let mut inversions = 0;
     let mut seen = std::collections::BTreeSet::new();
     for e in &s.model.edges {
-        let EdgeTarget::Local { id: to } = &e.to else { continue };
+        let EdgeTarget::Local { id: to } = &e.to else {
+            continue;
+        };
         // Methods are drawn as their type.
         let from = s
             .model
@@ -197,8 +205,7 @@ pub fn build(s: &Scorecard) -> Layers {
             .symbol(to)
             .and_then(|x| x.parent.clone())
             .unwrap_or_else(|| to.clone());
-        let (Some(&a), Some(&b)) = (index.get(from.as_str()), index.get(to_owner.as_str()))
-        else {
+        let (Some(&a), Some(&b)) = (index.get(from.as_str()), index.get(to_owner.as_str())) else {
             continue;
         };
         if a == b {
@@ -239,8 +246,10 @@ pub fn build(s: &Scorecard) -> Layers {
         for x in &on {
             *by.entry(x.m.as_str()).or_default() += 1;
         }
-        let mut modules: Vec<PlaneModule> =
-            by.into_iter().map(|(m, n)| PlaneModule { m: m.into(), n }).collect();
+        let mut modules: Vec<PlaneModule> = by
+            .into_iter()
+            .map(|(m, n)| PlaneModule { m: m.into(), n })
+            .collect();
         modules.sort_by(|a, b| b.n.cmp(&a.n).then(a.m.cmp(&b.m)));
         let mut patterns: Vec<String> = on.iter().map(|x| x.p.clone()).collect();
         patterns.sort();
@@ -263,8 +272,10 @@ pub fn build(s: &Scorecard) -> Layers {
         for x in &un {
             *by.entry(x.m.as_str()).or_default() += 1;
         }
-        let mut modules: Vec<PlaneModule> =
-            by.into_iter().map(|(m, n)| PlaneModule { m: m.into(), n }).collect();
+        let mut modules: Vec<PlaneModule> = by
+            .into_iter()
+            .map(|(m, n)| PlaneModule { m: m.into(), n })
+            .collect();
         modules.sort_by(|a, b| b.n.cmp(&a.n).then(a.m.cmp(&b.m)));
         planes.push(Plane {
             t: unclassified,

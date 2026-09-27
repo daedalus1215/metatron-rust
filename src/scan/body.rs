@@ -59,7 +59,8 @@ impl BodyScan {
         // `b.c`. Keep only the longest form of each chain.
         let all = s.field_chains.clone();
         s.field_chains.retain(|c| {
-            !all.iter().any(|o| o.len() > c.len() && o.ends_with(&format!(".{c}")))
+            !all.iter()
+                .any(|o| o.len() > c.len() && o.ends_with(&format!(".{c}")))
         });
         s
     }
@@ -139,13 +140,17 @@ impl BodyScan {
 /// `a.b.c` as a string, or `None` if the base is not a plain path.
 fn chain_of(e: &ExprField) -> Option<String> {
     let mut parts = Vec::new();
-    let Member::Named(id) = &e.member else { return None };
+    let Member::Named(id) = &e.member else {
+        return None;
+    };
     parts.push(id.to_string());
     let mut cur = &*e.base;
     loop {
         match cur {
             Expr::Field(f) => {
-                let Member::Named(id) = &f.member else { return None };
+                let Member::Named(id) = &f.member else {
+                    return None;
+                };
                 parts.push(id.to_string());
                 cur = &f.base;
             }

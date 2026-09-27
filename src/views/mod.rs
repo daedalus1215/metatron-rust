@@ -344,7 +344,11 @@ padding:1.1rem 1.3rem;margin:0 0 2rem}}
         viol = s.diff.new.len() + s.diff.known.len(),
         unev = s.counts().unevaluable,
         comp = s.enforcement().compiler,
-        narr = n.paragraphs().iter().map(|p| format!("<p>{p}</p>")).collect::<String>(),
+        narr = n
+            .paragraphs()
+            .iter()
+            .map(|p| format!("<p>{p}</p>"))
+            .collect::<String>(),
         cards = cards,
         omitted = omitted_html,
     )

@@ -317,7 +317,10 @@ fn one_type(
     for f in &fields {
         let mut best: Option<(usize, usize)> = None;
         for (gi, g) in groups.iter().enumerate() {
-            let n = g.iter().filter(|&&mi| touch[mi].contains(f.as_str())).count();
+            let n = g
+                .iter()
+                .filter(|&&mi| touch[mi].contains(f.as_str()))
+                .count();
             if n > 0 && best.map_or(true, |(bn, _)| n > bn) {
                 best = Some((n, gi));
             }
@@ -347,8 +350,12 @@ fn one_type(
         // method left over by the partition is an artefact, not a seam.
         .filter(|c| !c.fields.is_empty() || c.methods.len() > 1)
         .collect();
-    base.components
-        .sort_by(|a, b| b.fields.len().cmp(&a.fields.len()).then(a.methods.cmp(&b.methods)));
+    base.components.sort_by(|a, b| {
+        b.fields
+            .len()
+            .cmp(&a.fields.len())
+            .then(a.methods.cmp(&b.methods))
+    });
 
     let group_of: BTreeMap<usize, usize> = groups
         .iter()
@@ -359,7 +366,9 @@ fn one_type(
     let mut shared = BTreeSet::new();
     let mut cross = 0usize;
     for (mi, t) in touch.iter().enumerate() {
-        let Some(&gi) = group_of.get(&mi) else { continue };
+        let Some(&gi) = group_of.get(&mi) else {
+            continue;
+        };
         for f in t {
             match owner.get(f) {
                 Some(&fg) if fg != gi => {
@@ -387,7 +396,11 @@ fn components_of(
     calls: &[BTreeSet<&str>],
 ) -> usize {
     let nf = fields.len();
-    let idx_f: BTreeMap<&str, usize> = fields.iter().enumerate().map(|(i, f)| (f.as_str(), i)).collect();
+    let idx_f: BTreeMap<&str, usize> = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.as_str(), i))
+        .collect();
     let idx_m: BTreeMap<&str, usize> = methods
         .iter()
         .enumerate()
@@ -549,7 +562,9 @@ fn label(fields: &[String]) -> Option<String> {
             *count.entry(head).or_default() += 1;
         }
     }
-    let (head, n) = count.into_iter().max_by_key(|&(h, n)| (n, std::cmp::Reverse(h)))?;
+    let (head, n) = count
+        .into_iter()
+        .max_by_key(|&(h, n)| (n, std::cmp::Reverse(h)))?;
     if n < 2 || n * 3 < fields.len() {
         return None;
     }
@@ -613,6 +628,11 @@ fn mixed_concern(model: &Model) -> Vec<MixedConcern> {
             })
         })
         .collect();
-    out.sort_by(|a, b| b.concerns.len().cmp(&a.concerns.len()).then(a.symbol.cmp(&b.symbol)));
+    out.sort_by(|a, b| {
+        b.concerns
+            .len()
+            .cmp(&a.concerns.len())
+            .then(a.symbol.cmp(&b.symbol))
+    });
     out
 }

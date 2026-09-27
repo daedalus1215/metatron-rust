@@ -16,8 +16,12 @@ fn fixture() -> CohesionReport {
 /// The real checkouts live beside this one. Absent, these tests pass
 /// vacuously rather than failing on someone else's machine.
 fn sibling(name: &str) -> Option<Model> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(name);
-    p.join("Cargo.toml").exists().then(|| metatron::scan(&p).ok())?
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name);
+    p.join("Cargo.toml")
+        .exists()
+        .then(|| metatron::scan(&p).ok())?
 }
 
 fn ty<'a>(r: &'a CohesionReport, name: &str) -> &'a TypeCohesion {
@@ -56,7 +60,11 @@ fn the_partition_survives_destroying_every_name() {
     assert_eq!(anon.components.len(), split.components.len());
 
     let sizes = |t: &TypeCohesion| {
-        let mut v: Vec<_> = t.components.iter().map(|c| (c.fields.len(), c.methods.len())).collect();
+        let mut v: Vec<_> = t
+            .components
+            .iter()
+            .map(|c| (c.fields.len(), c.methods.len()))
+            .collect();
         v.sort();
         v
     };
@@ -165,7 +173,10 @@ fn an_enum_is_not_analysed() {
     // recounts the variants and calls every enum maximally incohesive.
     let Some(m) = sibling("arioch") else { return };
     let r = analyse(&m);
-    assert!(!r.types.iter().any(|t| t.name == "Command" || t.name == "Mode"));
+    assert!(!r
+        .types
+        .iter()
+        .any(|t| t.name == "Command" || t.name == "Mode"));
 }
 
 #[test]
@@ -192,7 +203,10 @@ fn a_field_written_and_never_read_is_reported() {
     assert_eq!(t.write_only_fields, vec!["tally".to_string()]);
     // `total` is assigned in `bump` and read in `report`.
     assert!(!t.write_only_fields.contains(&"total".to_string()));
-    assert!(t.unused_fields.is_empty(), "a written field is not untouched");
+    assert!(
+        t.unused_fields.is_empty(),
+        "a written field is not untouched"
+    );
 }
 
 #[test]
@@ -215,7 +229,12 @@ fn disjoint_responsibilities_report_as_disconnected() {
     assert_eq!(t.components.len(), 2);
     for c in &t.components {
         let heads: BTreeSet<char> = c.fields.iter().filter_map(|f| f.chars().next()).collect();
-        assert_eq!(heads.len(), 1, "a component mixed the two groups: {:?}", c.fields);
+        assert_eq!(
+            heads.len(),
+            1,
+            "a component mixed the two groups: {:?}",
+            c.fields
+        );
     }
 }
 
@@ -227,7 +246,9 @@ fn a_store_with_one_connection_does_not_decompose() {
     // doing a store's job. A detector that splits it is measuring size.
     let Some(m) = sibling("enoch") else { return };
     let r = analyse(&m);
-    let Some(db) = r.types.iter().find(|t| t.name == "Db") else { return };
+    let Some(db) = r.types.iter().find(|t| t.name == "Db") else {
+        return;
+    };
     assert_eq!(db.verdict, Verdict::Cohesive, "split a legitimate store");
 }
 
@@ -264,7 +285,14 @@ fn related_state_lands_in_one_component() {
     let Some(m) = sibling("arioch") else { return };
     let r = analyse(&m);
     let app = ty(&r, "App");
-    for prefix in ["suggestion_", "annot_", "map_", "investigate_", "search_", "bulk_"] {
+    for prefix in [
+        "suggestion_",
+        "annot_",
+        "map_",
+        "investigate_",
+        "search_",
+        "bulk_",
+    ] {
         let hit: BTreeSet<usize> = app
             .components
             .iter()
@@ -289,7 +317,10 @@ fn a_function_that_reads_the_disk_and_draws_is_reported() {
     let cs: Vec<&str> = f.concerns.keys().map(String::as_str).collect();
     assert_eq!(cs, vec!["io", "ui"]);
     // The control: same module, same imports, one concern.
-    assert!(!r.mixed_concern.iter().any(|f| f.symbol.ends_with("render_blank")));
+    assert!(!r
+        .mixed_concern
+        .iter()
+        .any(|f| f.symbol.ends_with("render_blank")));
 }
 
 #[test]
@@ -300,7 +331,9 @@ fn std_is_grouped_by_module_not_by_crate() {
     let Some(m) = sibling("arioch") else { return };
     let r = analyse(&m);
     assert!(
-        r.mixed_concern.iter().any(|f| f.symbol == "ui::render_main"),
+        r.mixed_concern
+            .iter()
+            .any(|f| f.symbol == "ui::render_main"),
         "ui::render_main calls std::fs::metadata while building widgets"
     );
 }

@@ -174,8 +174,8 @@ impl Config {
         if !p.exists() {
             return Ok(Self::profile());
         }
-        let text = std::fs::read_to_string(&p)
-            .with_context(|| format!("reading {}", p.display()))?;
+        let text =
+            std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         let mut cfg: Config =
             toml::from_str(&text).with_context(|| format!("parsing {}", p.display()))?;
         cfg.resolve();
@@ -286,7 +286,9 @@ impl Classified {
                 continue;
             }
             if let Some(c) = self.by_symbol.get(&s.id) {
-                by.entry(s.module.as_str()).or_default().insert(c.layer.clone());
+                by.entry(s.module.as_str())
+                    .or_default()
+                    .insert(c.layer.clone());
             }
         }
         by.into_iter()
@@ -397,9 +399,10 @@ pub fn classify(model: &Model, cfg: &Config) -> Classified {
                 .path
                 .as_ref()
                 .is_none_or(|x| path_matches(x, &s.file, &mut cache));
-            let ok_shape = p.symbol.as_ref().is_none_or(|m| {
-                shape_matches(m, s, &BTreeSet::new(), &impls_of, &mut cache)
-            });
+            let ok_shape = p
+                .symbol
+                .as_ref()
+                .is_none_or(|m| shape_matches(m, s, &BTreeSet::new(), &impls_of, &mut cache));
             if ok_path && ok_shape {
                 ports.insert(s.id.clone());
             }

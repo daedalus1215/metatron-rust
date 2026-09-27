@@ -124,7 +124,10 @@ pub fn build(s: &Scorecard) -> City {
                 tier,
                 count: fns.len(),
                 patterns,
-                files: vec![FileRef { f: m.file.clone(), p: "functions".into() }],
+                files: vec![FileRef {
+                    f: m.file.clone(),
+                    p: "functions".into(),
+                }],
             });
         }
     }
@@ -133,8 +136,10 @@ pub fn build(s: &Scorecard) -> City {
         // A floor is a type. Free functions live in the module, not on a
         // floor of their own — otherwise a 60-function module is a
         // 60-storey tower and height stops meaning anything.
-        if !matches!(sym.kind, SymbolKind::Struct | SymbolKind::Enum | SymbolKind::Trait | SymbolKind::Union)
-            || sym.is_test
+        if !matches!(
+            sym.kind,
+            SymbolKind::Struct | SymbolKind::Enum | SymbolKind::Trait | SymbolKind::Union
+        ) || sym.is_test
         {
             continue;
         }
@@ -146,21 +151,27 @@ pub fn build(s: &Scorecard) -> City {
             .iter()
             .filter(|m| m.parent.as_deref() == Some(sym.id.as_str()))
             .count();
-        by_module.entry(sym.module.as_str()).or_default().push(Floor {
-            id: sym.id.clone(),
-            label: sym.name.clone(),
-            tier,
-            count: methods.max(1),
-            patterns: s
-                .classified
-                .pattern_of(&sym.id)
-                .map(|p| vec![p.to_string()])
-                .unwrap_or_default(),
-            files: vec![FileRef {
-                f: sym.file.clone(),
-                p: s.classified.pattern_of(&sym.id).unwrap_or("unclassified").to_string(),
-            }],
-        });
+        by_module
+            .entry(sym.module.as_str())
+            .or_default()
+            .push(Floor {
+                id: sym.id.clone(),
+                label: sym.name.clone(),
+                tier,
+                count: methods.max(1),
+                patterns: s
+                    .classified
+                    .pattern_of(&sym.id)
+                    .map(|p| vec![p.to_string()])
+                    .unwrap_or_default(),
+                files: vec![FileRef {
+                    f: sym.file.clone(),
+                    p: s.classified
+                        .pattern_of(&sym.id)
+                        .unwrap_or("unclassified")
+                        .to_string(),
+                }],
+            });
     }
 
     // Findings hang off the tower they occur in, so a module carries its
@@ -176,13 +187,22 @@ pub fn build(s: &Scorecard) -> City {
             title: f.title.into(),
             tone: format!("{:?}", f.tone).to_lowercase(),
             detail: detail_of(f),
-            items: f.instances.iter().map(|i| format!("{}:{} {}", i.file, i.line, i.detail)).collect(),
+            items: f
+                .instances
+                .iter()
+                .map(|i| format!("{}:{} {}", i.file, i.line, i.detail))
+                .collect(),
         });
         for i in &f.instances {
-            let Some(sym) = s.model.symbol(&i.from) else { continue };
+            let Some(sym) = s.model.symbol(&i.from) else {
+                continue;
+            };
             let list = per_module.entry(sym.module.as_str()).or_default();
             if !list.iter().any(|x| x.id == f.id) {
-                list.push(Finding { id: f.id.into(), title: f.title.into() });
+                list.push(Finding {
+                    id: f.id.into(),
+                    title: f.title.into(),
+                });
             }
         }
     }
@@ -198,11 +218,18 @@ pub fn build(s: &Scorecard) -> City {
             Module {
                 id: super::mod_label(m, &s.model.project),
                 files: floors.iter().map(|f| f.count).sum(),
-                absent: all.iter().copied().filter(|i| !present.contains(i)).collect(),
+                absent: all
+                    .iter()
+                    .copied()
+                    .filter(|i| !present.contains(i))
+                    .collect(),
                 tiers_present: present,
                 floors,
                 findings: per_module.remove(m).unwrap_or_default(),
-                endpoints: super::traffic::entries(s).iter().filter(|e| e.module == m).count(),
+                endpoints: super::traffic::entries(s)
+                    .iter()
+                    .filter(|e| e.module == m)
+                    .count(),
             }
         })
         .collect();

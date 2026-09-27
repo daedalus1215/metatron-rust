@@ -12,11 +12,15 @@ fn run(dir: PathBuf) -> Report {
 }
 
 fn fixture(name: &str) -> Report {
-    run(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name))
+    run(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name))
 }
 
 fn sibling(name: &str) -> Option<Report> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(name);
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name);
     p.join("Cargo.toml").exists().then(|| run(p))
 }
 
@@ -32,8 +36,16 @@ fn rule<'a>(r: &'a Report, id: &str) -> &'a Finding {
 #[test]
 fn the_conforming_crate_violates_no_gating_rule() {
     let r = fixture("ports");
-    let failed: Vec<&str> = r.findings.iter().filter(|f| f.failed()).map(|f| f.id).collect();
-    assert!(failed.is_empty(), "gating failures on a conforming crate: {failed:?}");
+    let failed: Vec<&str> = r
+        .findings
+        .iter()
+        .filter(|f| f.failed())
+        .map(|f| f.id)
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "gating failures on a conforming crate: {failed:?}"
+    );
 }
 
 #[test]
@@ -46,7 +58,10 @@ fn every_decidable_rule_evaluates_against_the_conforming_crate() {
         .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
         .map(|f| f.id)
         .collect();
-    assert!(dark.is_empty(), "unevaluable against a conforming crate: {dark:?}");
+    assert!(
+        dark.is_empty(),
+        "unevaluable against a conforming crate: {dark:?}"
+    );
 }
 
 #[test]
@@ -93,7 +108,13 @@ fn every_heuristic_fires_and_none_of_them_gates() {
     // guess is switched off within a week, and takes the decidable rules
     // with it.
     let r = fixture("leaky");
-    for id in ["store-decides", "handler-decides", "service-wraps-one", "fat-trait", "renders-off-store"] {
+    for id in [
+        "store-decides",
+        "handler-decides",
+        "service-wraps-one",
+        "fat-trait",
+        "renders-off-store",
+    ] {
         let f = rule(&r, id);
         assert_eq!(f.kind, Kind::Heuristic, "{id}");
         assert!(!f.gate, "{id} gates");
@@ -105,9 +126,16 @@ fn every_heuristic_fires_and_none_of_them_gates() {
         .filter(|f| f.kind == Kind::Heuristic && f.status == Status::Violated)
         .map(|f| f.id)
         .collect();
-    assert!(fired.len() >= 3, "expected the heuristics to fire: {fired:?}");
+    assert!(
+        fired.len() >= 3,
+        "expected the heuristics to fire: {fired:?}"
+    );
     // And the exit code ignores them entirely.
-    let heuristic_failures = r.findings.iter().filter(|f| f.kind == Kind::Heuristic && f.failed()).count();
+    let heuristic_failures = r
+        .findings
+        .iter()
+        .filter(|f| f.kind == Kind::Heuristic && f.failed())
+        .count();
     assert_eq!(heuristic_failures, 0);
 }
 
@@ -119,7 +147,10 @@ fn the_violation_the_glossary_cares_most_about_is_reported_and_never_gates() {
     let r = fixture("leaky");
     let f = rule(&r, "store-decides");
     assert_eq!(f.status, Status::Violated);
-    assert!(f.instances.iter().any(|i| i.detail.contains("StartOutcome")));
+    assert!(f
+        .instances
+        .iter()
+        .any(|i| i.detail.contains("StartOutcome")));
     assert!(!f.gate);
 }
 
@@ -135,7 +166,10 @@ fn naming_a_concrete_fires_both_rules_that_cover_it() {
         .instances
         .iter()
         .any(|i| i.from == "domain::use_cases::activity::start_activity"));
-    assert!(cor.instances.iter().any(|i| i.to.ends_with("SqliteActivityStore")));
+    assert!(cor
+        .instances
+        .iter()
+        .any(|i| i.to.ends_with("SqliteActivityStore")));
 }
 
 #[test]
@@ -177,7 +211,12 @@ fn a_rule_whose_premise_is_absent_is_never_a_pass() {
         "domain-no-io",
     ] {
         let f = rule(&r, id);
-        assert_eq!(f.status, Status::Unevaluable, "{id} reported {:?}", f.status);
+        assert_eq!(
+            f.status,
+            Status::Unevaluable,
+            "{id} reported {:?}",
+            f.status
+        );
         assert!(!f.because.is_empty(), "{id} does not say why");
     }
     assert!(r.unevaluable().len() > 10);
@@ -221,7 +260,9 @@ fn arioch_render_functions_read_the_registry_directly() {
         .iter()
         .any(|i| i.detail.contains("app.registry.entries")));
     assert!(
-        f.instances.iter().all(|i| i.detail.contains("app.registry")),
+        f.instances
+            .iter()
+            .all(|i| i.detail.contains("app.registry")),
         "imprecise chains leaked in: {:?}",
         f.instances.iter().map(|i| &i.detail).collect::<Vec<_>>()
     );

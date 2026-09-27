@@ -146,7 +146,12 @@ impl Scorecard {
         self.cohesion
             .types
             .iter()
-            .filter(|t| matches!(t.verdict, Verdict::Tangled | Verdict::Splittable | Verdict::Disconnected))
+            .filter(|t| {
+                matches!(
+                    t.verdict,
+                    Verdict::Tangled | Verdict::Splittable | Verdict::Disconnected
+                )
+            })
             .collect()
     }
 

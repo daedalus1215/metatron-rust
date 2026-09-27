@@ -79,10 +79,19 @@ pub fn entries(s: &Scorecard) -> Vec<Entry> {
         if !classified && !by_name {
             continue;
         }
-        let verb = if sym.name.starts_with("cmd_") { "cli" } else { "tui" };
+        let verb = if sym.name.starts_with("cmd_") {
+            "cli"
+        } else {
+            "tui"
+        };
         let sig = sym.sig.as_ref();
         let params: Vec<String> = sig
-            .map(|g| g.params.iter().map(|p| format!("{}: {}", p.name, p.ty)).collect())
+            .map(|g| {
+                g.params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, p.ty))
+                    .collect()
+            })
             .unwrap_or_default();
         // The clap struct supplies the argument payload the way a DTO does
         // in the NestJS version.
@@ -134,8 +143,12 @@ fn trace(s: &Scorecard, from: &str) -> (Vec<Hop>, bool, Option<String>) {
                 if !matches!(e.kind, EdgeKind::Call | EdgeKind::Bound) {
                     continue;
                 }
-                let EdgeTarget::Local { id: to } = &e.to else { continue };
-                let Some(sym) = s.model.symbol(to) else { continue };
+                let EdgeTarget::Local { id: to } = &e.to else {
+                    continue;
+                };
+                let Some(sym) = s.model.symbol(to) else {
+                    continue;
+                };
                 if !seen.insert(sym.id.as_str()) {
                     continue;
                 }
@@ -149,8 +162,11 @@ fn trace(s: &Scorecard, from: &str) -> (Vec<Hop>, bool, Option<String>) {
                 // methods; a `Call` to a free function has no owning type.
                 // Repeating the name in both columns reads as a method
                 // call on itself.
-                let owner_name =
-                    s.model.symbol(owner).map(|x| x.name.clone()).unwrap_or_default();
+                let owner_name = s
+                    .model
+                    .symbol(owner)
+                    .map(|x| x.name.clone())
+                    .unwrap_or_default();
                 let (cls, method) = if owner == sym.id {
                     (sym.module.clone(), sym.name.clone())
                 } else {
@@ -217,7 +233,10 @@ pub fn build(s: &Scorecard) -> Traffic {
     Traffic {
         generated_at: crate::baseline::now_iso(),
         // Unresolved traces are reported, not drawn.
-        endpoints: endpoints.into_iter().filter(|e| !e.flat.is_empty()).collect(),
+        endpoints: endpoints
+            .into_iter()
+            .filter(|e| !e.flat.is_empty())
+            .collect(),
         diagnostics,
     }
 }

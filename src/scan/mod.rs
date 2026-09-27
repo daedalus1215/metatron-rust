@@ -49,7 +49,6 @@ struct Target {
     path: PathBuf,
 }
 
-
 impl Target {
     fn root(path: PathBuf) -> Self {
         Target {
@@ -158,29 +157,28 @@ impl Scanner {
                 entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
             found.sort();
             for path in found {
-                let (name, entry) = if path.is_file()
-                    && path.extension().and_then(|e| e.to_str()) == Some("rs")
-                {
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("bin")
-                        .to_string();
-                    (stem, path)
-                } else if path.is_dir() {
-                    let stem = path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("bin")
-                        .to_string();
-                    let entry = path.join("main.rs");
-                    if !entry.exists() {
+                let (name, entry) =
+                    if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("bin")
+                            .to_string();
+                        (stem, path)
+                    } else if path.is_dir() {
+                        let stem = path
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("bin")
+                            .to_string();
+                        let entry = path.join("main.rs");
+                        if !entry.exists() {
+                            continue;
+                        }
+                        (stem, entry)
+                    } else {
                         continue;
-                    }
-                    (stem, entry)
-                } else {
-                    continue;
-                };
+                    };
                 match &root {
                     None => root = Some(entry),
                     Some(_) => extra.push((name, entry)),
@@ -198,7 +196,10 @@ impl Scanner {
                 Some(p) => self.crate_dir.join(p),
                 // No `path`, and auto-discovery did not find it either.
                 None => {
-                    self.skip_target(&format!("bin `{name}`"), "declared in Cargo.toml but no src/bin/{name}.rs or src/bin/{name}/main.rs");
+                    self.skip_target(
+                        &format!("bin `{name}`"),
+                        "declared in Cargo.toml but no src/bin/{name}.rs or src/bin/{name}/main.rs",
+                    );
                     continue;
                 }
             };
@@ -408,17 +409,15 @@ impl Scanner {
                         Some((_, inner)) => {
                             self.items(inner, &child, rel, file, is_root, test)?;
                         }
-                        None => {
-                            match self.module_file(file, mod_id, &name, is_root, &m.attrs) {
-                                Some(path) => self.walk_module(&child, &path, false)?,
-                                None => self.diagnostics.push(Diagnostic {
-                                    kind: DiagnosticKind::MissingModule,
-                                    file: rel.into(),
-                                    line: m.span().start().line as u32,
-                                    detail: format!("`mod {name};` has no matching file"),
-                                }),
-                            }
-                        }
+                        None => match self.module_file(file, mod_id, &name, is_root, &m.attrs) {
+                            Some(path) => self.walk_module(&child, &path, false)?,
+                            None => self.diagnostics.push(Diagnostic {
+                                kind: DiagnosticKind::MissingModule,
+                                file: rel.into(),
+                                line: m.span().start().line as u32,
+                                detail: format!("`mod {name};` has no matching file"),
+                            }),
+                        },
                     }
                 }
                 syn::Item::Use(u) => self.use_item(u, mod_id, rel, in_test),
@@ -898,13 +897,70 @@ impl Scanner {
 
         // Primitives and common std prelude names are not architecture.
         let ignore: BTreeSet<&str> = [
-            "Self", "self", "String", "str", "bool", "usize", "u8", "u16", "u32", "u64", "i8",
-            "i16", "i32", "i64", "f32", "f64", "char", "Vec", "Option", "Some", "None", "Result",
-            "Ok", "Err", "Box", "HashMap", "HashSet", "BTreeMap", "BTreeSet", "PathBuf", "Path",
-            "Duration", "Default", "Clone", "Copy", "Debug", "PartialEq", "Eq", "Hash", "Ord",
-            "PartialOrd", "From", "Into", "Iterator", "ToString", "Display", "Drop", "Send",
-            "Sync", "Sized", "Fn", "FnMut", "FnOnce", "Cow", "Rc", "Arc", "RefCell", "Cell",
-            "Mutex", "RwLock", "OnceCell", "Ordering", "SystemTime", "Instant",
+            "Self",
+            "self",
+            "String",
+            "str",
+            "bool",
+            "usize",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "f32",
+            "f64",
+            "char",
+            "Vec",
+            "Option",
+            "Some",
+            "None",
+            "Result",
+            "Ok",
+            "Err",
+            "Box",
+            "HashMap",
+            "HashSet",
+            "BTreeMap",
+            "BTreeSet",
+            "PathBuf",
+            "Path",
+            "Duration",
+            "Default",
+            "Clone",
+            "Copy",
+            "Debug",
+            "PartialEq",
+            "Eq",
+            "Hash",
+            "Ord",
+            "PartialOrd",
+            "From",
+            "Into",
+            "Iterator",
+            "ToString",
+            "Display",
+            "Drop",
+            "Send",
+            "Sync",
+            "Sized",
+            "Fn",
+            "FnMut",
+            "FnOnce",
+            "Cow",
+            "Rc",
+            "Arc",
+            "RefCell",
+            "Cell",
+            "Mutex",
+            "RwLock",
+            "OnceCell",
+            "Ordering",
+            "SystemTime",
+            "Instant",
         ]
         .into_iter()
         .collect();
@@ -959,7 +1015,10 @@ impl Scanner {
         let mods_c = mods.clone();
         let ctx = std::mem::take(&mut self.mod_ctx);
         for b in &mut self.impls {
-            let uses = ctx.get(&b.module).map(|c| c.uses.clone()).unwrap_or_default();
+            let uses = ctx
+                .get(&b.module)
+                .map(|c| c.uses.clone())
+                .unwrap_or_default();
             b.trait_id = match resolve_path(
                 &b.trait_path,
                 &b.module,
@@ -971,7 +1030,11 @@ impl Scanner {
                 Res::Local(id) => Some(id),
                 Res::Path(_) => None,
             };
-            if b.type_id.as_deref().map(|i| !index.contains(i)).unwrap_or(true) {
+            if b.type_id
+                .as_deref()
+                .map(|i| !index.contains(i))
+                .unwrap_or(true)
+            {
                 b.type_id = None;
             }
         }
@@ -1029,7 +1092,10 @@ impl Scanner {
         } else {
             dir.join(stem)
         };
-        for cand in [base.join(format!("{name}.rs")), base.join(name).join("mod.rs")] {
+        for cand in [
+            base.join(format!("{name}.rs")),
+            base.join(name).join("mod.rs"),
+        ] {
             if cand.exists() {
                 return Some(cand);
             }
@@ -1084,12 +1150,19 @@ fn resolve_path(
                 // `use dual::greet_all` records `greet_all -> dual::greet_all`.
                 // The crate's own name is not a module, so the prefix has to
                 // come off before the path can be looked up in the crate.
-                if let Some(rest) = local.strip_prefix(self_crate).and_then(|r| r.strip_prefix("::")) {
+                if let Some(rest) = local
+                    .strip_prefix(self_crate)
+                    .and_then(|r| r.strip_prefix("::"))
+                {
                     local = rest.to_string();
                 } else if local == self_crate {
                     local = String::new();
                 }
-                let expanded = if segs.len() == 1 { local } else { join(&local, &rest(1)) };
+                let expanded = if segs.len() == 1 {
+                    local
+                } else {
+                    join(&local, &rest(1))
+                };
                 match lookup(&expanded, index, mods) {
                     Some(id) => return Res::Local(id),
                     // Not local, so the `use` pointed outside the crate. The
@@ -1339,7 +1412,10 @@ fn parent_of(id: &str) -> Option<String> {
 /// for the package; the rest are binaries, and their id already carries the
 /// name cargo gave them.
 fn target_name(mod_id: &str, project: &str) -> String {
-    match mod_id.strip_prefix("(bin:").and_then(|s| s.strip_suffix(')')) {
+    match mod_id
+        .strip_prefix("(bin:")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         Some(n) => n.to_string(),
         None => project.replace('-', "_"),
     }
@@ -1373,8 +1449,8 @@ struct Manifest {
 }
 
 fn read_manifest(p: &Path) -> Result<Manifest> {
-    let src = std::fs::read_to_string(p)
-        .with_context(|| format!("no Cargo.toml at {}", p.display()))?;
+    let src =
+        std::fs::read_to_string(p).with_context(|| format!("no Cargo.toml at {}", p.display()))?;
     let v: toml::Value = src.parse().context("Cargo.toml is not valid TOML")?;
     let name = v
         .get("package")

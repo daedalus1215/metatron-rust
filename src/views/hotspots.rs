@@ -101,10 +101,18 @@ fn churn(dir: &Path, root: &str) -> BTreeMap<String, Churn> {
             continue;
         }
         let mut f = line.split('\t');
-        let (Some(a), Some(r), Some(path)) = (f.next(), f.next(), f.next()) else { continue };
+        let (Some(a), Some(r), Some(path)) = (f.next(), f.next(), f.next()) else {
+            continue;
+        };
         // A binary file shows `-` for both counts.
-        let (a, r) = (a.parse::<usize>().unwrap_or(0), r.parse::<usize>().unwrap_or(0));
-        let rel = path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_string();
+        let (a, r) = (
+            a.parse::<usize>().unwrap_or(0),
+            r.parse::<usize>().unwrap_or(0),
+        );
+        let rel = path
+            .strip_prefix(&format!("{root}/"))
+            .unwrap_or(path)
+            .to_string();
         let e = map.entry(rel.clone()).or_default();
         e.commits += 1;
         e.added += a;
@@ -181,7 +189,11 @@ pub fn build(s: &Scorecard) -> Result<Hotspots> {
     file_links.dedup();
 
     let commits: usize = ch.values().map(|c| c.commits).sum();
-    let since = ch.values().map(|c| c.first.clone()).min().unwrap_or_default();
+    let since = ch
+        .values()
+        .map(|c| c.first.clone())
+        .min()
+        .unwrap_or_default();
 
     Ok(Hotspots {
         generated_at: crate::baseline::now_iso(),

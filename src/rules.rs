@@ -193,8 +193,7 @@ struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     fn new(m: &'a Model, cfg: &'a Config, c: &'a Classified) -> Self {
-        let by_id: BTreeMap<&str, &Symbol> =
-            m.symbols.iter().map(|s| (s.id.as_str(), s)).collect();
+        let by_id: BTreeMap<&str, &Symbol> = m.symbols.iter().map(|s| (s.id.as_str(), s)).collect();
         let owner_pattern = c
             .by_symbol
             .iter()
@@ -224,7 +223,16 @@ impl<'a> Ctx<'a> {
             .collect();
         layer_dirs.sort_by_key(|(p, _)| std::cmp::Reverse(p.len()));
         layer_dirs.dedup();
-        Ctx { m, cfg, c, by_id, owner_pattern, owner_layer, layer_dirs, ports }
+        Ctx {
+            m,
+            cfg,
+            c,
+            by_id,
+            owner_pattern,
+            owner_layer,
+            layer_dirs,
+            ports,
+        }
     }
 
     /// The classified layer only.
@@ -251,7 +259,10 @@ impl<'a> Ctx<'a> {
         self.by_id.get(id)
     }
     fn any_in_layer(&self, layer: &str) -> bool {
-        self.m.symbols.iter().any(|s| self.where_(&s.id) == Some(layer))
+        self.m
+            .symbols
+            .iter()
+            .any(|s| self.where_(&s.id) == Some(layer))
     }
     fn extern_group(&self, name: &str) -> &[String] {
         self.cfg.externs.get(name).map(Vec::as_slice).unwrap_or(&[])
@@ -285,8 +296,20 @@ pub fn check(m: &Model, cfg: &Config, c: &Classified) -> Report {
     let x = Ctx::new(m, cfg, c);
     let findings = vec![
         domain_no_io(&x),
-        layer_reference(&x, "domain-no-application", "no domain/ symbol references application/", "domain", "application"),
-        layer_reference(&x, "infra-no-application", "no infra/ symbol references application/", "infrastructure", "application"),
+        layer_reference(
+            &x,
+            "domain-no-application",
+            "no domain/ symbol references application/",
+            "domain",
+            "application",
+        ),
+        layer_reference(
+            &x,
+            "infra-no-application",
+            "no infra/ symbol references application/",
+            "infrastructure",
+            "application",
+        ),
         concrete_outside_root(&x),
         call_through_port(&x),
         flow_skip(&x),
@@ -316,7 +339,13 @@ pub fn check(m: &Model, cfg: &Config, c: &Classified) -> Report {
         .filter(|f| f.gate && f.status != Status::Delegated)
         .count();
     let advisory = rules - compiler_enforced - checked_here;
-    Report { findings, rules, compiler_enforced, checked_here, advisory }
+    Report {
+        findings,
+        rules,
+        compiler_enforced,
+        checked_here,
+        advisory,
+    }
 }
 
 // ----------------------------------------------------------- layer rules
@@ -359,7 +388,9 @@ fn domain_no_io(x: &Ctx) -> Finding {
         .collect();
     let mut out = Vec::new();
     for e in &x.m.edges {
-        let EdgeTarget::Extern { path, .. } = &e.to else { continue };
+        let EdgeTarget::Extern { path, .. } = &e.to else {
+            continue;
+        };
         if x.where_(&e.from) != Some("domain") || !matches_any(path, &io) {
             continue;
         }
@@ -393,12 +424,18 @@ fn layer_reference(
     if !x.any_in_layer(from_layer) || !x.any_in_layer(to_layer) {
         return f.unevaluable(&format!(
             "no symbol classifies as {}",
-            if x.any_in_layer(from_layer) { to_layer } else { from_layer }
+            if x.any_in_layer(from_layer) {
+                to_layer
+            } else {
+                from_layer
+            }
         ));
     }
     let mut out = Vec::new();
     for e in &x.m.edges {
-        let EdgeTarget::Local { id: to } = &e.to else { continue };
+        let EdgeTarget::Local { id: to } = &e.to else {
+            continue;
+        };
         // `impl Trait for Type` runs backwards by design; it is the
         // dependency inversion, and it has its own rule.
         if e.kind == EdgeKind::Impl {
@@ -428,25 +465,29 @@ fn concrete_outside_root(x: &Ctx) -> Finding {
         Kind::Decidable,
         true,
     );
-    let concretes: BTreeSet<&str> = x
-        .c
-        .by_symbol
-        .values()
-        .filter(|c| matches!(c.pattern.as_str(), "store" | "adapter" | "infra-impl"))
-        .filter(|c| !c.inherited)
-        .map(|c| c.symbol.as_str())
-        .collect();
+    let concretes: BTreeSet<&str> =
+        x.c.by_symbol
+            .values()
+            .filter(|c| matches!(c.pattern.as_str(), "store" | "adapter" | "infra-impl"))
+            .filter(|c| !c.inherited)
+            .map(|c| c.symbol.as_str())
+            .collect();
     if concretes.is_empty() {
         return f.unevaluable("no concrete store or adapter exists");
     }
     let mut out = Vec::new();
     for e in &x.m.edges {
-        let EdgeTarget::Local { id: to } = &e.to else { continue };
+        let EdgeTarget::Local { id: to } = &e.to else {
+            continue;
+        };
         if !concretes.contains(to.as_str()) || e.kind == EdgeKind::Impl {
             continue;
         }
         let from_layer = x.where_(&e.from);
-        if matches!(from_layer, Some("infrastructure") | Some("composition-root") | Some("test")) {
+        if matches!(
+            from_layer,
+            Some("infrastructure") | Some("composition-root") | Some("test")
+        ) {
             continue;
         }
         out.push(Instance {
@@ -472,13 +513,12 @@ fn call_through_port(x: &Ctx) -> Finding {
     if x.ports.is_empty() {
         return f.unevaluable("no port trait exists");
     }
-    let concretes: BTreeSet<&str> = x
-        .c
-        .by_symbol
-        .values()
-        .filter(|c| matches!(c.pattern.as_str(), "store" | "adapter" | "infra-impl"))
-        .map(|c| c.symbol.as_str())
-        .collect();
+    let concretes: BTreeSet<&str> =
+        x.c.by_symbol
+            .values()
+            .filter(|c| matches!(c.pattern.as_str(), "store" | "adapter" | "infra-impl"))
+            .map(|c| c.symbol.as_str())
+            .collect();
     let mut out = Vec::new();
     for s in &x.m.symbols {
         if !matches!(
@@ -493,9 +533,9 @@ fn call_through_port(x: &Ctx) -> Finding {
                 continue; // `&impl Port` — this is the architecture working.
             }
             for want in &p.ty_paths {
-                let hit = concretes.iter().find(|c| {
-                    c.rsplit("::").next() == want.rsplit("::").next()
-                });
+                let hit = concretes
+                    .iter()
+                    .find(|c| c.rsplit("::").next() == want.rsplit("::").next());
                 if let Some(c) = hit {
                     out.push(x.inst(
                         s,
@@ -524,17 +564,16 @@ fn port_signature_purity(x: &Ctx) -> Finding {
     let mut out = Vec::new();
     for p in &x.ports {
         for me in x.methods_of(&p.id) {
-            let leak: Vec<&str> = x
-                .m
-                .edges
-                .iter()
-                .filter(|e| e.from == me.id && e.kind == EdgeKind::Sig)
-                .filter_map(|e| match &e.to {
-                    EdgeTarget::Extern { path, .. } => Some(path.as_str()),
-                    _ => None,
-                })
-                .filter(|path| !path.starts_with("std::") && !path.starts_with("core::"))
-                .collect();
+            let leak: Vec<&str> =
+                x.m.edges
+                    .iter()
+                    .filter(|e| e.from == me.id && e.kind == EdgeKind::Sig)
+                    .filter_map(|e| match &e.to {
+                        EdgeTarget::Extern { path, .. } => Some(path.as_str()),
+                        _ => None,
+                    })
+                    .filter(|path| !path.starts_with("std::") && !path.starts_with("core::"))
+                    .collect();
             for l in leak {
                 out.push(x.inst(me, l, format!("`{}` exposes {l}", me.name)));
             }
@@ -557,12 +596,11 @@ fn port_has_fake(x: &Ctx) -> Finding {
     }
     let mut out = Vec::new();
     for p in &x.ports {
-        let impls: Vec<_> = x
-            .m
-            .impls
-            .iter()
-            .filter(|b| b.trait_id.as_deref() == Some(p.id.as_str()))
-            .collect();
+        let impls: Vec<_> =
+            x.m.impls
+                .iter()
+                .filter(|b| b.trait_id.as_deref() == Some(p.id.as_str()))
+                .collect();
         if impls.is_empty() {
             out.push(x.inst(p, "", format!("`{}` is a dead port: no impl", p.name)));
             continue;
@@ -574,7 +612,11 @@ fn port_has_fake(x: &Ctx) -> Finding {
             out.push(x.inst(
                 p,
                 "",
-                format!("`{}` has {} impl(s), none of them a fake", p.name, impls.len()),
+                format!(
+                    "`{}` has {} impl(s), none of them a fake",
+                    p.name,
+                    impls.len()
+                ),
             ));
         }
     }
@@ -601,7 +643,9 @@ fn dependency_inversion(x: &Ctx) -> Finding {
     let mut good = Vec::new();
     let mut bad = Vec::new();
     for b in &x.m.impls {
-        let (Some(t), Some(ty)) = (&b.trait_id, &b.type_id) else { continue };
+        let (Some(t), Some(ty)) = (&b.trait_id, &b.type_id) else {
+            continue;
+        };
         let tl = x.layer(t);
         let cl = x.layer(ty);
         if tl == Some("domain") && matches!(cl, Some("infrastructure") | Some("test")) {
@@ -655,29 +699,36 @@ fn flow_skip(x: &Ctx) -> Finding {
     let Some(seam) = flow.iter().position(|s| s == "port") else {
         return f.unevaluable("`flow` declares no port station");
     };
-    let station: BTreeMap<&str, usize> =
-        flow.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
-    let above = x
-        .c
-        .by_symbol
-        .values()
-        .any(|c| station.get(c.pattern.as_str()).is_some_and(|i| *i < seam));
-    let below = x
-        .c
-        .by_symbol
-        .values()
-        .any(|c| station.get(c.pattern.as_str()).is_some_and(|i| *i > seam));
+    let station: BTreeMap<&str, usize> = flow
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
+    let above =
+        x.c.by_symbol
+            .values()
+            .any(|c| station.get(c.pattern.as_str()).is_some_and(|i| *i < seam));
+    let below =
+        x.c.by_symbol
+            .values()
+            .any(|c| station.get(c.pattern.as_str()).is_some_and(|i| *i > seam));
     if !above || !below {
         return f.unevaluable("no station exists on both sides of the port seam");
     }
     let mut out = Vec::new();
     for e in &x.m.edges {
-        let EdgeTarget::Local { id: to } = &e.to else { continue };
+        let EdgeTarget::Local { id: to } = &e.to else {
+            continue;
+        };
         if e.kind == EdgeKind::Impl {
             continue; // the inversion arrow; checked separately
         }
-        let (Some(a), Some(b)) = (x.pattern(&e.from), x.pattern(to)) else { continue };
-        let (Some(&i), Some(&j)) = (station.get(a), station.get(b)) else { continue };
+        let (Some(a), Some(b)) = (x.pattern(&e.from), x.pattern(to)) else {
+            continue;
+        };
+        let (Some(&i), Some(&j)) = (station.get(a), station.get(b)) else {
+            continue;
+        };
         if i < seam && j > seam {
             out.push(Instance {
                 from: e.from.clone(),
@@ -711,11 +762,15 @@ fn no_same_level(x: &Ctx) -> Finding {
     }
     let mut out = Vec::new();
     for e in x.m.edges.iter().filter(|e| e.kind == EdgeKind::Call) {
-        let EdgeTarget::Local { id: to } = &e.to else { continue };
+        let EdgeTarget::Local { id: to } = &e.to else {
+            continue;
+        };
         if e.from == *to {
             continue;
         }
-        let (Some(a), Some(b)) = (x.pattern(&e.from), x.pattern(to)) else { continue };
+        let (Some(a), Some(b)) = (x.pattern(&e.from), x.pattern(to)) else {
+            continue;
+        };
         if a == b && LEVELS.contains(&a) {
             out.push(Instance {
                 from: e.from.clone(),
@@ -745,7 +800,9 @@ fn no_global_mut(x: &Ctx) -> Finding {
     ];
     let mut out = Vec::new();
     for s in x.m.symbols.iter().filter(|s| s.kind == SymbolKind::Static) {
-        let Some(ty) = s.fields.first().map(|f| f.ty.as_str()) else { continue };
+        let Some(ty) = s.fields.first().map(|f| f.ty.as_str()) else {
+            continue;
+        };
         if s.is_test {
             continue;
         }
@@ -783,7 +840,11 @@ fn dto_in_domain(x: &Ctx) -> Finding {
             continue;
         }
         if banned.iter().any(|b| s.name.ends_with(b.as_str())) {
-            out.push(x.inst(s, "", format!("`{}` is named for a transport layer", s.name)));
+            out.push(x.inst(
+                s,
+                "",
+                format!("`{}` is named for a transport layer", s.name),
+            ));
         }
     }
     f.with(out)
@@ -801,13 +862,12 @@ fn use_case_verb(x: &Ctx) -> Finding {
         Kind::Decidable,
         true,
     );
-    let in_dir: Vec<&Symbol> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::Fn && s.file.contains("domain/use_cases/"))
-        .filter(|s| !s.is_test)
-        .collect();
+    let in_dir: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Fn && s.file.contains("domain/use_cases/"))
+            .filter(|s| !s.is_test)
+            .collect();
     if in_dir.is_empty() {
         return f.unevaluable("no domain/use_cases/ directory");
     }
@@ -839,7 +899,9 @@ fn time_injected(x: &Ctx) -> Finding {
     }
     let mut out = Vec::new();
     for e in &x.m.edges {
-        let EdgeTarget::Extern { path, .. } = &e.to else { continue };
+        let EdgeTarget::Extern { path, .. } = &e.to else {
+            continue;
+        };
         if !matches_any(path, group) {
             continue;
         }
@@ -866,12 +928,11 @@ fn converter_is_pure(x: &Ctx) -> Finding {
         Kind::Decidable,
         true,
     );
-    let convs: Vec<&Symbol> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| x.pattern(&s.id) == Some("converter"))
-        .collect();
+    let convs: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| x.pattern(&s.id) == Some("converter"))
+            .collect();
     if convs.is_empty() {
         return f.unevaluable("no symbol classifies as converter");
     }
@@ -908,41 +969,38 @@ fn mixed_layer_module(x: &Ctx) -> Finding {
     );
     // One classified symbol cannot produce a mixed module, and reporting
     // a pass on that basis claims the modules were examined.
-    let per_module = x
-        .c
-        .by_symbol
-        .values()
-        .filter(|c| !c.inherited)
-        .filter_map(|c| x.sym(&c.symbol).map(|s| s.module.as_str()))
-        .fold(BTreeMap::<&str, usize>::new(), |mut a, m| {
-            *a.entry(m).or_default() += 1;
-            a
-        });
+    let per_module =
+        x.c.by_symbol
+            .values()
+            .filter(|c| !c.inherited)
+            .filter_map(|c| x.sym(&c.symbol).map(|s| s.module.as_str()))
+            .fold(BTreeMap::<&str, usize>::new(), |mut a, m| {
+                *a.entry(m).or_default() += 1;
+                a
+            });
     if !per_module.values().any(|n| *n >= 2) {
         return f.unevaluable("no module has two classified symbols to compare");
     }
-    let out: Vec<Instance> = x
-        .c
-        .mixed_layer_modules(x.m)
-        .into_iter()
-        .map(|(module, layers)| {
-            let file = x
-                .m
-                .modules
-                .iter()
-                .find(|md| md.id == module)
-                .map(|md| md.file.clone())
-                .unwrap_or_default();
-            let l: Vec<&str> = layers.iter().map(String::as_str).collect();
-            Instance {
-                from: module.clone(),
-                to: String::new(),
-                file,
-                line: 1,
-                detail: format!("{module} spans {}", l.join(" + ")),
-            }
-        })
-        .collect();
+    let out: Vec<Instance> =
+        x.c.mixed_layer_modules(x.m)
+            .into_iter()
+            .map(|(module, layers)| {
+                let file =
+                    x.m.modules
+                        .iter()
+                        .find(|md| md.id == module)
+                        .map(|md| md.file.clone())
+                        .unwrap_or_default();
+                let l: Vec<&str> = layers.iter().map(String::as_str).collect();
+                Instance {
+                    from: module.clone(),
+                    to: String::new(),
+                    file,
+                    line: 1,
+                    detail: format!("{module} spans {}", l.join(" + ")),
+                }
+            })
+            .collect();
     f.with(out)
 }
 
@@ -958,8 +1016,7 @@ fn panic_in_domain() -> Finding {
     );
     f.status = Status::Delegated;
     f.tone = Tone::Note;
-    f.because =
-        "clippy::unwrap_used / expect_used, denied per-module in clippy.toml".into();
+    f.because = "clippy::unwrap_used / expect_used, denied per-module in clippy.toml".into();
     f
 }
 
@@ -978,32 +1035,37 @@ fn store_decides(x: &Ctx) -> Finding {
         Kind::Heuristic,
         false,
     );
-    let stores: Vec<&Symbol> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| {
-            matches!(x.pattern(&s.id), Some("store") | Some("adapter") | Some("infra-impl"))
-        })
-        .filter(|s| s.kind == SymbolKind::Method)
-        .collect();
+    let stores: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| {
+                matches!(
+                    x.pattern(&s.id),
+                    Some("store") | Some("adapter") | Some("infra-impl")
+                )
+            })
+            .filter(|s| s.kind == SymbolKind::Method)
+            .collect();
     if stores.is_empty() {
         return f.unevaluable("no store or adapter method exists");
     }
-    let domain_enums: BTreeSet<&str> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::Enum && x.where_(&s.id) == Some("domain"))
-        .map(|s| s.name.as_str())
-        .collect();
+    let domain_enums: BTreeSet<&str> =
+        x.m.symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Enum && x.where_(&s.id) == Some("domain"))
+            .map(|s| s.name.as_str())
+            .collect();
     let mut out = Vec::new();
     for s in stores {
         let Some(sig) = &s.sig else { continue };
         for p in &sig.ret_paths {
             let leaf = p.rsplit("::").next().unwrap_or(p);
             if domain_enums.contains(leaf) {
-                out.push(x.inst(s, leaf, format!("`{}` returns the domain enum {leaf}", s.name)));
+                out.push(x.inst(
+                    s,
+                    leaf,
+                    format!("`{}` returns the domain enum {leaf}", s.name),
+                ));
             }
         }
         let heads: BTreeSet<&str> = s
@@ -1028,22 +1090,20 @@ fn handler_decides(x: &Ctx) -> Finding {
         Kind::Heuristic,
         false,
     );
-    let handlers: Vec<&Symbol> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| x.pattern(&s.id) == Some("command-handler"))
-        .collect();
+    let handlers: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| x.pattern(&s.id) == Some("command-handler"))
+            .collect();
     if handlers.is_empty() {
         return f.unevaluable("no command-handler exists");
     }
-    let domain_enums: BTreeSet<&str> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::Enum && x.where_(&s.id) == Some("domain"))
-        .map(|s| s.name.as_str())
-        .collect();
+    let domain_enums: BTreeSet<&str> =
+        x.m.symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Enum && x.where_(&s.id) == Some("domain"))
+            .map(|s| s.name.as_str())
+            .collect();
     let mut out = Vec::new();
     for s in handlers {
         // One finding per enum, not one per arm.
@@ -1069,31 +1129,33 @@ fn service_wraps_one(x: &Ctx) -> Finding {
         Kind::Heuristic,
         false,
     );
-    let services: Vec<&Symbol> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| x.pattern(&s.id) == Some("service"))
-        .filter(|s| matches!(s.kind, SymbolKind::Fn | SymbolKind::Method))
-        .collect();
+    let services: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| x.pattern(&s.id) == Some("service"))
+            .filter(|s| matches!(s.kind, SymbolKind::Fn | SymbolKind::Method))
+            .collect();
     if services.is_empty() {
         return f.unevaluable("no symbol classifies as service");
     }
     let mut out = Vec::new();
     for s in services {
-        let calls: Vec<&str> = x
-            .m
-            .edges
-            .iter()
-            .filter(|e| e.from == s.id && e.kind == EdgeKind::Call)
-            .filter_map(|e| match &e.to {
-                EdgeTarget::Local { id } => Some(id.as_str()),
-                _ => None,
-            })
-            .filter(|id| x.pattern(id) == Some("use-case"))
-            .collect();
+        let calls: Vec<&str> =
+            x.m.edges
+                .iter()
+                .filter(|e| e.from == s.id && e.kind == EdgeKind::Call)
+                .filter_map(|e| match &e.to {
+                    EdgeTarget::Local { id } => Some(id.as_str()),
+                    _ => None,
+                })
+                .filter(|id| x.pattern(id) == Some("use-case"))
+                .collect();
         if calls.len() == 1 {
-            out.push(x.inst(s, calls[0], format!("`{}` wraps exactly one use-case", s.name)));
+            out.push(x.inst(
+                s,
+                calls[0],
+                format!("`{}` wraps exactly one use-case", s.name),
+            ));
         }
     }
     f.with(out)
@@ -1116,7 +1178,11 @@ fn fat_trait(x: &Ctx) -> Finding {
     for p in &x.ports {
         let n = x.methods_of(&p.id).len();
         if n > MAX {
-            out.push(x.inst(p, "", format!("`{}` declares {n} methods (> {MAX})", p.name)));
+            out.push(x.inst(
+                p,
+                "",
+                format!("`{}` declares {n} methods (> {MAX})", p.name),
+            ));
         }
     }
     f.with(out)
@@ -1131,18 +1197,17 @@ fn renders_off_store(x: &Ctx) -> Finding {
         Kind::Heuristic,
         false,
     );
-    let render: Vec<&Symbol> = x
-        .m
-        .symbols
-        .iter()
-        .filter(|s| matches!(s.kind, SymbolKind::Fn | SymbolKind::Method))
-        .filter(|s| !s.is_test)
-        .filter(|s| {
-            s.name.starts_with("render_")
-                || s.name.starts_with("draw_")
-                || matches!(x.pattern(&s.id), Some("view-model"))
-        })
-        .collect();
+    let render: Vec<&Symbol> =
+        x.m.symbols
+            .iter()
+            .filter(|s| matches!(s.kind, SymbolKind::Fn | SymbolKind::Method))
+            .filter(|s| !s.is_test)
+            .filter(|s| {
+                s.name.starts_with("render_")
+                    || s.name.starts_with("draw_")
+                    || matches!(x.pattern(&s.id), Some("view-model"))
+            })
+            .collect();
     if render.is_empty() {
         return f.unevaluable("no render function found");
     }

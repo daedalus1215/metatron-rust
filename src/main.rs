@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "metatron", version, about = "Rust architecture model and conformance checker")]
+#[command(
+    name = "metatron",
+    version,
+    about = "Rust architecture model and conformance checker"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -78,45 +82,57 @@ enum Cmd {
     },
 }
 
-fn main() -> Result<()> {
+/// Exit codes, named so the dispatch below reads as the policy it is:
+///
+/// * `0` — the command ran and the answer is in the output.
+/// * `1` — the command ran and the answer is "no": a regression, or a gate that
+///   did not hold. CI fails; nothing is wrong with the tool.
+/// * `2` — the command did not produce an answer: a missing directory, an
+///   unparseable manifest, a template that would not render. Nothing was
+///   checked, so `1` would be a lie about work never done.
+const REGRESSION: u8 = 1;
+const NO_ANSWER: u8 = 2;
+
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(code) => std::process::ExitCode::from(code),
+        Err(e) => {
+            eprintln!("metatron: {e:#}");
+            std::process::ExitCode::from(NO_ANSWER)
+        }
+    }
+}
+
+fn run() -> Result<u8> {
     let cli = Cli::parse();
     let (path, to_stdout) = match cli.command {
         Some(Cmd::Scan { path, stdout }) => (path.or(cli.path), stdout),
-        Some(Cmd::Classify { path, verbose, json }) => {
+        Some(Cmd::Classify {
+            path,
+            verbose,
+            json,
+        }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
             return classify(&dir, verbose, json);
         }
-        Some(Cmd::Check { path, all, json, rules, allow_new, no_fixed }) => {
+        Some(Cmd::Check {
+            path,
+            all,
+            json,
+            rules,
+            allow_new,
+            no_fixed,
+        }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return match check(&dir, all, json, &rules, allow_new, no_fixed) {
-                Ok(()) => Ok(()),
-                // Exit 2 distinguishes "the tool broke" from "the
-                // architecture regressed" — CI needs to tell them apart.
-                Err(e) => {
-                    eprintln!("metatron: {e:#}");
-                    std::process::exit(2)
-                }
-            };
+            return check(&dir, all, json, &rules, allow_new, no_fixed);
         }
         Some(Cmd::Views { path, name, out }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return match views(&dir, name.as_deref(), out) {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    eprintln!("metatron: {e:#}");
-                    std::process::exit(2)
-                }
-            };
+            return views(&dir, name.as_deref(), out);
         }
         Some(Cmd::Baseline { path, update }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return match baseline_cmd(&dir, update) {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    eprintln!("metatron: {e:#}");
-                    std::process::exit(2)
-                }
-            };
+            return baseline_cmd(&dir, update);
         }
         Some(Cmd::Cohesion { path, all, json }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
@@ -131,7 +147,7 @@ fn main() -> Result<()> {
 
     if to_stdout {
         println!("{json}");
-        return Ok(());
+        return Ok(0);
     }
 
     let out = dir.join(".metatron");
@@ -208,10 +224,10 @@ fn main() -> Result<()> {
 
     println!();
     println!("  -> {}", out.join("model.json").display());
-    Ok(())
+    Ok(0)
 }
 
-fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
+fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<u8> {
     use metatron::cohesion::Verdict;
 
     let model = metatron::scan(dir)?;
@@ -219,7 +235,7 @@ fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+        return Ok(0);
     }
 
     println!("metatron cohesion · {}", model.project);
@@ -289,7 +305,10 @@ fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
             println!("    never touched: {}", t.unused_fields.join(", "));
         }
         if !t.write_only_fields.is_empty() {
-            println!("    written, never read: {}", t.write_only_fields.join(", "));
+            println!(
+                "    written, never read: {}",
+                t.write_only_fields.join(", ")
+            );
         }
         println!();
     }
@@ -298,23 +317,29 @@ fn cohesion(dir: &PathBuf, all: bool, json: bool) -> Result<()> {
         println!("  mixed-concern functions");
         for f in &report.mixed_concern {
             let cs: Vec<&str> = f.concerns.keys().map(String::as_str).collect();
-            println!("    {}:{:<5} {}  [{}]", f.file, f.line, f.symbol, cs.join(" + "));
+            println!(
+                "    {}:{:<5} {}  [{}]",
+                f.file,
+                f.line,
+                f.symbol,
+                cs.join(" + ")
+            );
         }
         println!();
     }
 
     println!("  advisory — nothing here gates a build (spec 02).");
-    Ok(())
+    Ok(0)
 }
 
-fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
+fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<u8> {
     let model = metatron::scan(dir)?;
     let cfg = metatron::classify::Config::load(dir)?;
     let c = metatron::classify::classify(&model, &cfg);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&c)?);
-        return Ok(());
+        return Ok(0);
     }
 
     let cov = &c.coverage;
@@ -326,7 +351,11 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
         cov.classified,
         cov.total,
         pct,
-        if cov.classified == cov.total { "" } else { "  !" }
+        if cov.classified == cov.total {
+            ""
+        } else {
+            "  !"
+        }
     );
 
     if !cov.by_layer.is_empty() {
@@ -336,9 +365,7 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
                 .by_pattern
                 .iter()
                 .filter(|(p, _)| {
-                    cfg.patterns
-                        .iter()
-                        .any(|x| &x.id == *p && &x.layer == l)
+                    cfg.patterns.iter().any(|x| &x.id == *p && &x.layer == l)
                         || (*p == "infra-impl" && l == "infrastructure")
                 })
                 .map(|(p, n)| format!("{p} {n}"))
@@ -394,7 +421,7 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<()> {
     }
 
     println!();
-    Ok(())
+    Ok(0)
 }
 
 fn check(
@@ -404,7 +431,7 @@ fn check(
     only: &[String],
     allow_new: usize,
     no_fixed: bool,
-) -> Result<()> {
+) -> Result<u8> {
     use metatron::rules::{Kind, Status, Tone};
 
     let s = metatron::scorecard::build(dir)?;
@@ -430,7 +457,7 @@ fn check(
                 findings: &s.report.findings,
             })?
         );
-        std::process::exit(s.exit_code(allow_new));
+        return Ok(s.exit_code(allow_new) as u8);
     }
 
     let c = s.counts();
@@ -447,7 +474,11 @@ fn check(
         cov.classified,
         cov.total,
         s.coverage(),
-        if cov.classified == cov.total { "" } else { "  !" }
+        if cov.classified == cov.total {
+            ""
+        } else {
+            "  !"
+        }
     );
     println!();
     println!(
@@ -484,7 +515,10 @@ fn check(
     let flags = s.cohesion_flags();
     if !flags.is_empty() {
         println!();
-        println!("  cohesion    {:>6}     type(s) over threshold", flags.len());
+        println!(
+            "  cohesion    {:>6}     type(s) over threshold",
+            flags.len()
+        );
         for t in flags.iter().take(4) {
             println!(
                 "                         {}  {}:{}  {} components, {} methods  [{:?}]",
@@ -528,7 +562,11 @@ fn check(
                 f.id,
                 f.instances.len(),
                 f.title,
-                if f.kind == Kind::Heuristic { "heuristic" } else { "warn" }
+                if f.kind == Kind::Heuristic {
+                    "heuristic"
+                } else {
+                    "warn"
+                }
             );
             for i in f.instances.iter().take(if all { 100 } else { 3 }) {
                 println!("      {}:{:<5} {}", i.file, i.line, i.detail);
@@ -596,20 +634,27 @@ fn check(
 
     println!();
     if !only.is_empty() {
-        println!("  gating on {} rule(s): {}", gating.len(), gating.join(", "));
+        println!(
+            "  gating on {} rule(s): {}",
+            gating.len(),
+            gating.join(", ")
+        );
     }
     if !s.had_baseline {
-        println!("  no {} — run `metatron baseline --update` to accept the current state.", metatron::baseline::FILE);
+        println!(
+            "  no {} — run `metatron baseline --update` to accept the current state.",
+            metatron::baseline::FILE
+        );
     }
     if failing > allow_new {
         println!("  FAIL — {failing} new violation(s), {allow_new} allowed.");
-        std::process::exit(1);
+        return Ok(REGRESSION);
     }
     println!(
         "  PASS — no new violations. {} known.",
         s.diff.known.len() + if s.had_baseline { 0 } else { s.diff.new.len() }
     );
-    Ok(())
+    Ok(0)
 }
 
 fn locate(s: &metatron::Scorecard, v: &metatron::baseline::Entry) -> String {
@@ -617,19 +662,19 @@ fn locate(s: &metatron::Scorecard, v: &metatron::baseline::Entry) -> String {
         .findings
         .iter()
         .find(|f| f.id == v.rule)
-        .and_then(|f| f.instances.iter().find(|i| i.from == v.from && i.to == v.to))
+        .and_then(|f| {
+            f.instances
+                .iter()
+                .find(|i| i.from == v.from && i.to == v.to)
+        })
         .map(|i| format!("{}:{:<5} {}", i.file, i.line, i.detail))
         .unwrap_or_else(|| format!("{} -> {}", v.from, v.to))
 }
 
-fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<()> {
+fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<u8> {
     let s = metatron::scorecard::build(dir)?;
-    let (next, out) = metatron::baseline::update(
-        &s.report,
-        &s.baseline,
-        &s.model.project,
-        s.coverage(),
-    );
+    let (next, out) =
+        metatron::baseline::update(&s.report, &s.baseline, &s.model.project, s.coverage());
 
     println!("metatron baseline · {}", s.model.project);
     println!();
@@ -670,12 +715,15 @@ fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<()> {
             );
         }
     } else {
-        println!("  dry run — pass --update to write {}", metatron::baseline::FILE);
+        println!(
+            "  dry run — pass --update to write {}",
+            metatron::baseline::FILE
+        );
     }
-    Ok(())
+    Ok(0)
 }
 
-fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> {
+fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<u8> {
     let s = metatron::scorecard::build(dir)?;
     let out = out.unwrap_or_else(|| dir.join(".metatron/views"));
 
@@ -686,7 +734,7 @@ fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> 
         std::fs::write(&p, html)?;
         println!("metatron views · {}", s.model.project);
         println!("  -> {}", p.display());
-        return Ok(());
+        return Ok(0);
     }
 
     let written = metatron::views::write_all(&s, &out)?;
@@ -698,7 +746,11 @@ fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> 
             "  {} {:<10} {}",
             if on { "*" } else { " " },
             v.name,
-            if on { v.blurb } else { "omitted — nothing to say about this crate" }
+            if on {
+                v.blurb
+            } else {
+                "omitted — nothing to say about this crate"
+            }
         );
     }
     // Omitted, not emptied: metatron's build drops narration slots with
@@ -706,5 +758,5 @@ fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<()> 
     println!("    schema     omitted — no ORM in Rust; revisit when a domain layer exists");
     println!();
     println!("  -> {}", out.join("index.html").display());
-    Ok(())
+    Ok(0)
 }

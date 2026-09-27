@@ -13,18 +13,26 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 fn card(name: &str) -> metatron::Scorecard {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name);
     metatron::scorecard::build(&p).expect("scorecard")
 }
 
 fn sibling(name: &str) -> Option<metatron::Scorecard> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(name);
-    p.join("Cargo.toml").exists().then(|| metatron::scorecard::build(&p).expect("scorecard"))
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name);
+    p.join("Cargo.toml")
+        .exists()
+        .then(|| metatron::scorecard::build(&p).expect("scorecard"))
 }
 
 /// The JSON out of the one `__DATA__` slot in a rendered view.
 fn payload(html: &str) -> Value {
-    let at = html.find("type=\"application/json\">").expect("no data script");
+    let at = html
+        .find("type=\"application/json\">")
+        .expect("no data script");
     let start = at + "type=\"application/json\">".len();
     let end = start + html[start..].find("</script>").expect("unterminated");
     serde_json::from_str(&html[start..end]).expect("payload is not valid JSON")
@@ -37,7 +45,11 @@ fn every_view_renders_with_nothing_left_unsubstituted() {
     let s = card("ports");
     for v in views::available(&s) {
         let html = views::render(&s, v.name).unwrap_or_else(|e| panic!("{}: {e:#}", v.name));
-        assert!(!html.contains("__DATA__"), "{}: token left in place", v.name);
+        assert!(
+            !html.contains("__DATA__"),
+            "{}: token left in place",
+            v.name
+        );
         assert!(
             !html.contains("{{"),
             "{}: placeholder left unsubstituted",
@@ -124,7 +136,10 @@ fn layers_marks_the_inversion_arrow_and_never_calls_it_a_skip() {
     assert_eq!(d["inversions"], 5);
     for l in &impls {
         assert_eq!(l[2], 1, "an inversion runs upward against the layers");
-        assert!(l[3].is_null(), "an inversion must never be flagged as a skip");
+        assert!(
+            l[3].is_null(),
+            "an inversion must never be flagged as a skip"
+        );
     }
 }
 
@@ -187,7 +202,10 @@ fn traffic_traces_a_subcommand_to_the_port_and_stops_there() {
     assert!(kinds.contains(&"use-case"), "{kinds:?}");
     assert!(kinds.contains(&"port"), "{kinds:?}");
     // The trace stops at the port: the concrete is never a hop.
-    assert!(!kinds.contains(&"store"), "the trace reached past the port: {kinds:?}");
+    assert!(
+        !kinds.contains(&"store"),
+        "the trace reached past the port: {kinds:?}"
+    );
 }
 
 #[test]
@@ -274,7 +292,13 @@ fn the_narration_describes_this_crate_and_not_another() {
     assert!(!ports.get("ports").unwrap().contains("no port seam"));
 
     // The axis the glossary earns and no other tool prints.
-    assert!(n.get("enforcement").unwrap().contains("none is enforced by the compiler"));
-    assert!(n.get("unevaluable").is_some(), "17 dark rules and nothing said");
+    assert!(n
+        .get("enforcement")
+        .unwrap()
+        .contains("none is enforced by the compiler"));
+    assert!(
+        n.get("unevaluable").is_some(),
+        "17 dark rules and nothing said"
+    );
     assert!(n.get("coverage").unwrap().contains("1.2%"));
 }

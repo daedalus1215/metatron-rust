@@ -128,8 +128,7 @@ fn a_declared_bin_whose_root_is_outside_src_is_scanned() {
     let cli = sym(&m, "(bin:cli)::main");
     assert_eq!(cli.kind, SymbolKind::Fn);
     assert_eq!(
-        cli.file,
-        "../tools/cli.rs",
+        cli.file, "../tools/cli.rs",
         "a target outside src/ must still be relative to the model root"
     );
 
@@ -155,8 +154,9 @@ fn a_target_that_could_not_be_scanned_is_named() {
 
     // The declared path that does not exist.
     assert!(
-        skipped.iter().any(|d| d.detail.contains("`gone`")
-            && d.detail.contains("tools/gone.rs")),
+        skipped
+            .iter()
+            .any(|d| d.detail.contains("`gone`") && d.detail.contains("tools/gone.rs")),
         "a declared path that does not exist was not reported: {skipped:?}"
     );
 
@@ -176,7 +176,8 @@ fn a_dual_target_crate_scans_both_roots() {
     let m = fixture("dual");
 
     assert_eq!(
-        m.stats.files, 2,
+        m.stats.files,
+        2,
         "expected both src/lib.rs and src/main.rs, got {:?}",
         m.modules.iter().map(|x| &x.file).collect::<Vec<_>>()
     );
@@ -199,12 +200,7 @@ fn a_dual_target_crate_scans_both_roots() {
 fn a_dual_target_scan_says_so() {
     let m = fixture("dual");
 
-    let names: Vec<&str> = m
-        .stats
-        .targets
-        .iter()
-        .map(|t| t.name.as_str())
-        .collect();
+    let names: Vec<&str> = m.stats.targets.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(names, ["dual", "main"], "the summary must name both roots");
     assert_eq!(m.stats.targets[0].kind, "lib");
     assert_eq!(m.stats.targets[0].file, "lib.rs");
@@ -301,8 +297,7 @@ fn impl_bound_distinguishes_port_from_concrete() {
     // The use case must not reach a concrete store by any edge kind.
     let uc = "domain::use_cases::activity::start_activity";
     let reaches_concrete = m.edges.iter().any(|e| {
-        e.from == uc
-            && matches!(&e.to, EdgeTarget::Local { id } if id.contains("Sqlite"))
+        e.from == uc && matches!(&e.to, EdgeTarget::Local { id } if id.contains("Sqlite"))
     });
     assert!(!reaches_concrete, "use case named a concrete store");
 
@@ -313,9 +308,9 @@ fn impl_bound_distinguishes_port_from_concrete() {
         .filter(|e| matches!(&e.to, EdgeTarget::Local { id } if id.contains("SqliteActivityStore")))
         .map(|e| e.from.as_str())
         .collect();
-    assert!(names_sqlite.iter().all(|f| f.starts_with("main")
-        || f.starts_with("infra")
-        || *f == "(crate)"));
+    assert!(names_sqlite
+        .iter()
+        .all(|f| f.starts_with("main") || f.starts_with("infra") || *f == "(crate)"));
 }
 
 #[test]

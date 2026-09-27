@@ -4,9 +4,7 @@
 //! things, and a rule about what a port signature may mention has to see all
 //! of them — spec 01, `port-signature-purity` in spec 04.
 
-use syn::{
-    GenericArgument, PathArguments, ReturnType, Type, TypeParamBound,
-};
+use syn::{GenericArgument, PathArguments, ReturnType, Type, TypeParamBound};
 
 pub fn path_string(p: &syn::Path) -> String {
     let mut s = String::new();
