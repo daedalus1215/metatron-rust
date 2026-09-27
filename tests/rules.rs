@@ -370,6 +370,72 @@ fn the_enforcement_line_partitions_the_rules_it_counts() {
 // ------------------------------------------------- who is allowed to gate
 
 #[test]
+fn adding_a_rule_without_choosing_its_enforcement_fails_this_test() {
+    // The rule table is a list somebody appends to, and `Finding::new` takes
+    // `kind` and `gate` as arguments — so a new rule cannot be added without
+    // passing *something*, and `Kind::Decidable, false` is as easy to type as
+    // `true`. Pinning both lists is the only way "somebody decided this one
+    // warns" is distinguishable from "somebody copied the line above".
+    //
+    // Both directions are pinned: a new gating rule has to be named here too,
+    // because a rule that starts failing builds is as much a decision as one
+    // that does not.
+    const GATES: &[&str] = &[
+        "domain-no-io",
+        "domain-no-application",
+        "infra-no-application",
+        "concrete-outside-root",
+        "call-through-port",
+        "flow-skip",
+        "no-same-level",
+        "port-signature-purity",
+        "no-global-mut",
+        "dto-in-domain",
+        "use-case-verb",
+        "time-injected",
+        "converter-is-pure",
+        "mixed-layer-module",
+        "dependency-inversion",
+        "panic-in-domain",
+    ];
+    const WARNS: &[&str] = &[
+        // Decidable, and deliberately a warning: one fake per port is a
+        // convention a team adopts over a refactor, not a property of a build.
+        "port-has-fake",
+        // Heuristics. These can never gate; see the test below.
+        "store-decides",
+        "handler-decides",
+        "service-wraps-one",
+        "fat-trait",
+        "renders-off-store",
+    ];
+
+    let r = fixture("ports");
+    let gates: Vec<&str> = r
+        .findings
+        .iter()
+        .filter(|f| f.gates())
+        .map(|f| f.id)
+        .collect();
+    let warns: Vec<&str> = r
+        .findings
+        .iter()
+        .filter(|f| !f.gates())
+        .map(|f| f.id)
+        .collect();
+    assert_eq!(gates, GATES, "the gating set changed; say why in this test");
+    assert_eq!(
+        warns, WARNS,
+        "a rule was added or made advisory; say why here"
+    );
+    assert_eq!(
+        gates.len() + warns.len(),
+        r.findings.len(),
+        "every rule is in exactly one list"
+    );
+}
+
+#[test]
 fn no_heuristic_and_no_delegated_rule_ever_gates() {
     // This is the invariant that makes `Finding::gates()` worth having. The
     // rule table is a list someone appends to, and `gate: true` on a heuristic

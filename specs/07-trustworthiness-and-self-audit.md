@@ -21,7 +21,9 @@ Specs 01 through 06 are written against that sentence, and the hard parts hold.
 The fingerprint is `sha1(rule|from|to)[..12]` (`src/baseline.rs:70`) and the swap
 it exists to catch is tested (`tests/baseline.rs:94`). Heuristic rules cannot
 enter the baseline under any flag. Twenty-two rules split seventeen decidable
-from five heuristic and only the decidable gate. `CfgExcluded` exists in the
+from five heuristic; sixteen gate, and the one decidable rule that does not is
+`port-has-fake`, which is a convention a team adopts over a refactor rather
+than a property of a build. `CfgExcluded` exists in the
 model. A fixture crate of deliberately tangled Rust is the corpus, not a mock.
 
 But the discipline stopped being applied at the edges, and at the edges is where
@@ -370,8 +372,9 @@ the coverage problem, and it is caught by the same assertion.
   with zero symbols.
 - A dual-target scan reports its targets separately in `stats`, and the two module
   tree roots have distinct ids.
-- Every subcommand exits 2 on a scan or config error — all seven asserted, not
-  spot-checked, in `tests/cli.rs` against `CARGO_BIN_EXE_metatron`.
+- Every subcommand exits 2 on a scan or config error — all six asserted, not
+  spot-checked, in `tests/cli.rs` against `CARGO_BIN_EXE_metatron`. There are
+  six subcommands; "seven" counted `help`.
 - `metatron check` exits 0 clean, 1 on a new violation, and 2 on a tool error,
   asserted as the same three-way split.
 - `metatron check` never prints a bare `PASS` when most rules are unevaluable; it
