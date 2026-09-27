@@ -208,3 +208,57 @@ fn the_coverage_floor_applies_to_the_json_path_too() {
         0
     );
 }
+
+#[test]
+fn an_unevaluable_decidable_rule_is_a_gate_when_asked_for() {
+    // `gnarly` leaves 14 decidable rules with no premises in the crate. They
+    // are not passes; without the flag they are a caveat, with it they fail.
+    let out = run(&["check", "--require-evaluable", "tests/fixtures/gnarly"]);
+    assert_eq!(
+        out.status.code(),
+        Some(REGRESSION),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("could not be evaluated"), "{stdout}");
+    // It has to name them, or "14 rules" is not actionable.
+    assert!(stdout.contains("domain-no-io"), "{stdout}");
+    assert!(!stdout.contains("PASS"), "{stdout}");
+}
+
+#[test]
+fn a_heuristic_that_cannot_decide_does_not_trip_the_flag() {
+    // A heuristic is honest about being unable to decide, and never gates. A
+    // flag that failed on those would be unusable on any real crate, and would
+    // push people to turn it off.
+    let out = run(&["check", "--require-evaluable", "tests/fixtures/ports"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a crate whose decidable rules all evaluated was failed:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
+fn the_evaluable_flag_applies_to_the_json_path_too() {
+    assert_eq!(
+        code(&[
+            "check",
+            "--json",
+            "--require-evaluable",
+            "tests/fixtures/gnarly"
+        ]),
+        REGRESSION
+    );
+    assert_eq!(
+        code(&[
+            "check",
+            "--json",
+            "--require-evaluable",
+            "tests/fixtures/ports"
+        ]),
+        0
+    );
+}

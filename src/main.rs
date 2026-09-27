@@ -59,6 +59,10 @@ enum Cmd {
         /// failure instead of a footnote.
         #[arg(long, value_name = "PCT")]
         min_coverage: Option<f64>,
+        /// Fail if any rule that should be decidable could not be. A rule
+        /// whose premises are not in this crate is not a rule that passed.
+        #[arg(long)]
+        require_evaluable: bool,
     },
     /// Render the views to .metatron/views/.
     Views {
@@ -129,9 +133,19 @@ fn run() -> Result<u8> {
             allow_new,
             no_fixed,
             min_coverage,
+            require_evaluable,
         }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
-            return check(&dir, all, json, &rules, allow_new, no_fixed, min_coverage);
+            return check(
+                &dir,
+                all,
+                json,
+                &rules,
+                allow_new,
+                no_fixed,
+                min_coverage,
+                require_evaluable,
+            );
         }
         Some(Cmd::Views { path, name, out }) => {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
@@ -439,6 +453,7 @@ fn check(
     allow_new: usize,
     no_fixed: bool,
     min_coverage: Option<f64>,
+    require_evaluable: bool,
 ) -> Result<u8> {
     use metatron::rules::{Kind, Status, Tone};
 
@@ -449,6 +464,20 @@ fn check(
     // footnote into a gate. It is a real "no" rather than a tool failure, so
     // it exits 1 with the rest of the gate results.
     let below_floor = min_coverage.filter(|pct| s.coverage() < *pct);
+
+    // A decidable rule that could not be evaluated is a dark rule, and the
+    // distinction matters: a heuristic that cannot decide is honest about
+    // itself and never gates. This is the same predicate the test helper
+    // `Scorecard::assert_no_unevaluable` uses, so the flag and the test suite
+    // cannot disagree about what "evaluable" means.
+    let dark: Vec<&str> = s
+        .report
+        .findings
+        .iter()
+        .filter(|f| f.kind == Kind::Decidable && f.status == Status::Unevaluable)
+        .map(|f| f.id)
+        .collect();
+    let dark_failed = require_evaluable && !dark.is_empty();
 
     if json {
         #[derive(serde::Serialize)]
@@ -471,7 +500,7 @@ fn check(
                 findings: &s.report.findings,
             })?
         );
-        return Ok(if below_floor.is_some() {
+        return Ok(if below_floor.is_some() || dark_failed {
             REGRESSION
         } else {
             s.exit_code(allow_new) as u8
@@ -714,6 +743,19 @@ fn check(
         println!("  FAIL — {failing} new violation(s), {allow_new} allowed.");
         return Ok(REGRESSION);
     }
+    if dark_failed {
+        println!(
+            "  FAIL — {} rule(s) could not be evaluated.\n\
+             \x20        A decidable rule with no premises in this crate is not a \
+             rule that passed:\n{}",
+            dark.len(),
+            dark.iter()
+                .map(|r| format!("          {r}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        return Ok(REGRESSION);
+    }
     if let Some(pct) = below_floor {
         let gap = s.classified.unmatched.len();
         println!(
@@ -750,10 +792,10 @@ fn check(
             s.coverage()
         ));
     }
-    if c.unevaluable > 0 {
+    if !dark.is_empty() {
         narrower.push(format!(
-            "{} rule(s) unevaluable — a rule that cannot decide did not pass",
-            c.unevaluable
+            "{} decidable rule(s) unevaluable — a rule that cannot decide did not pass",
+            dark.len()
         ));
     }
     if !gating.is_empty() && gating.len() < s.gating_rules().len() {
