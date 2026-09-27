@@ -302,3 +302,67 @@ fn the_narration_describes_this_crate_and_not_another() {
     );
     assert!(n.get("coverage").unwrap().contains("1.2%"));
 }
+
+// ------------------------------------------------- the payload and the page
+
+#[test]
+fn a_payload_cannot_close_its_own_script_element() {
+    // The two sequences that end a `<script>` element are `</script` and
+    // `<!--`. Both appear in a layer title in this fixture's metatron.toml,
+    // which every view that draws its tier index carries as a tier name.
+    //
+    // metatron-nestjs refuses to render in this case (src/build.js:134). This
+    // asserts the opposite and better property: the page renders, and the
+    // payload still parses to the same document.
+    let s = card("escape");
+    let mut carried_by = Vec::new();
+
+    for v in views::VIEWS {
+        let html = views::render(&s, v.name).expect("render");
+
+        // The data element is not terminated early: everything between the
+        // opening tag and the closing one is the payload.
+        let at = html
+            .find("type=\"application/json\">")
+            .unwrap_or_else(|| panic!("{}: no data script", v.name));
+        let start = at + "type=\"application/json\">".len();
+        let end = start
+            + html[start..]
+                .find("</script>")
+                .unwrap_or_else(|| panic!("{}: unterminated data script", v.name));
+        let raw = &html[start..end];
+
+        assert!(
+            !raw.contains("</"),
+            "{}: the payload still contains a closing sequence:\n{}",
+            v.name,
+            raw
+        );
+        assert!(
+            !raw.contains("<!--"),
+            "{}: the payload still contains a comment opener",
+            v.name
+        );
+
+        // And the escape is lossless: the document a JSON parser sees is the
+        // document the tool composed. That every payload parses is also the
+        // proof the replace did not touch JSON structure — a structural
+        // character cannot contain `<`, `/` or `!`.
+        let parsed: Value = serde_json::from_str(raw).unwrap_or_else(|e| panic!("{}: {e}", v.name));
+        if serde_json::to_string(&parsed)
+            .unwrap()
+            .contains("core </script> <!-- still core")
+        {
+            carried_by.push(v.name);
+        }
+    }
+
+    // The negative control: the fixture really does carry both sequences, so
+    // this test cannot pass by the input going away. Not every view draws the
+    // tier index — `traffic` on this crate does not — so the assertion is that
+    // at least one does.
+    assert!(
+        !carried_by.is_empty(),
+        "no view carried the layer title, so this test proved nothing"
+    );
+}

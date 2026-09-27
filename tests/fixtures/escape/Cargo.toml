@@ -1,0 +1,7 @@
+[package]
+name = "escape"
+version = "0.1.0"
+edition = "2021"
+
+# Both sequences that end a <script> element, in a string this tool reads from
+# disk and hands to the browser verbatim: a layer title from metatron.toml.

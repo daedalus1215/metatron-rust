@@ -177,6 +177,25 @@ pub fn stats(s: &Scorecard) -> Stats {
     }
 }
 
+/// Make a serialized payload safe to sit inside a `<script>` element.
+///
+/// Two sequences end one early: `</script` and `<!--`. Both are escaped here,
+/// as `</` -> `<\u002F` and `<!` -> `<\u0021`.
+///
+/// The escapes are legal JSON, so `JSON.parse` on the page's `textContent`
+/// returns the identical document — the payload is not altered, only its
+/// spelling on the way to the browser. A global textual replace is sound
+/// because `<`, `/` and `!` cannot appear anywhere in JSON except inside a
+/// string literal: the structural characters are `{}[]",:` and numbers.
+///
+/// metatron-nestjs hard-fails on this instead (`src/build.js:134`). Refusing to
+/// render because a layer title contains four characters is a worse answer
+/// than rendering it correctly, and the inputs are ours: every one of these
+/// strings came from a file in the crate being scanned.
+fn escape_for_script(json: &str) -> String {
+    json.replace("</", "<\\u002F").replace("<!", "<\\u0021")
+}
+
 fn payload(s: &Scorecard, name: &str) -> Result<String> {
     Ok(match name {
         "atlas" => serde_json::to_string(&atlas::build(s))?,
@@ -204,7 +223,7 @@ pub fn render(s: &Scorecard, name: &str) -> Result<String> {
         bail!("template `{name}` has {hits} __DATA__ tokens, expected exactly 1");
     }
 
-    let json = payload(s, name)?;
+    let json = escape_for_script(&payload(s, name)?);
     let pretty = s
         .model
         .project
