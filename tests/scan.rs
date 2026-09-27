@@ -83,6 +83,52 @@ fn derives_are_captured() {
 
 // ------------------------------------------------------------- entry points
 
+/// Spec 07. Cargo builds a `[[bin]]` whose root is outside `src/`. A scanner
+/// that only looks under `src/` misses it, and reports what it did scan as
+/// though it were the crate.
+#[test]
+fn a_declared_bin_whose_root_is_outside_src_is_scanned() {
+    let m = fixture("declared");
+
+    let cli = sym(&m, "(bin:cli)::main");
+    assert_eq!(cli.kind, SymbolKind::Fn);
+    assert_eq!(cli.file, "tools/cli.rs", "an absolute path leaked into the model");
+
+    // And the library is still the crate root, so `use declared::helper` in
+    // the binary resolves rather than becoming a diagnostic.
+    let unresolved: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::UnresolvedPath)
+        .collect();
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+}
+
+#[test]
+fn a_target_that_could_not_be_scanned_is_named() {
+    let m = fixture("declared");
+
+    let skipped: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::TargetSkipped)
+        .collect();
+
+    // The declared path that does not exist.
+    assert!(
+        skipped.iter().any(|d| d.detail.contains("`gone`")
+            && d.detail.contains("tools/gone.rs")),
+        "a declared path that does not exist was not reported: {skipped:?}"
+    );
+
+    // The example, which exists and is deliberately not architecture. A
+    // decision not to look is still a decision, and it gets a diagnostic.
+    assert!(
+        skipped.iter().any(|d| d.detail.contains("example `demo`")),
+        "not scanning an example was not reported: {skipped:?}"
+    );
+}
+
 /// Spec 07. The scanner used to take the first of `main.rs` / `lib.rs` it
 /// found, so a crate with both targets was analysed minus its entire library —
 /// and reported the result as though it were the whole crate.

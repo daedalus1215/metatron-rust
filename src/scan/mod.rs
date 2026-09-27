@@ -68,10 +68,15 @@ impl Target {
 
 pub struct Scanner {
     root: PathBuf,
+    /// The crate directory. Only used to make a path outside `src/` — a
+    /// `[[bin]] path = "tools/cli.rs"` — come out relative rather than
+    /// absolute, so the model carries no machine's directory layout.
+    crate_dir: PathBuf,
     project: String,
     /// `project` with `-` folded to `_`, which is how a crate names itself in
     /// its own source. Cargo does the folding; we have to match it.
     self_crate: String,
+    manifest: Manifest,
     extern_crates: BTreeSet<String>,
     symbols: Vec<Symbol>,
     raw_edges: Vec<RawEdge>,
@@ -95,12 +100,16 @@ impl Scanner {
             .canonicalize()
             .with_context(|| format!("no such directory: {}", dir.display()))?;
         let manifest = dir.join("Cargo.toml");
-        let (project, extern_crates) = read_manifest(&manifest)?;
-        let self_crate = project.replace('-', "_");
+        let manifest = read_manifest(&manifest)?;
+        let self_crate = manifest.project.replace('-', "_");
+        let project = manifest.project.clone();
+        let extern_crates = manifest.externs.clone();
         Ok(Self {
             root: dir.join("src"),
+            crate_dir: dir,
             project,
             self_crate,
+            manifest,
             extern_crates,
             symbols: Vec::new(),
             raw_edges: Vec::new(),
@@ -123,8 +132,8 @@ impl Scanner {
     /// Spec 07.
     ///
     /// The first entry is the crate root; the rest are extra targets.
-    fn targets(&self) -> Vec<Target> {
-        let src = &self.root;
+    fn targets(&mut self) -> Vec<Target> {
+        let src = self.root.clone();
         let mut root: Option<PathBuf> = None;
         let mut extra: Vec<(String, PathBuf)> = Vec::new();
 
@@ -179,9 +188,54 @@ impl Scanner {
             }
         }
 
+        // A declared `[[bin]]` may point anywhere, including outside `src/`.
+        // Cargo would build it, so it is part of the crate.
+        for (name, declared) in self.manifest.bins.clone() {
+            if declared.is_none() && extra.iter().any(|(n, _)| *n == name) {
+                continue; // already covered by auto-discovery
+            }
+            let path = match declared {
+                Some(p) => self.crate_dir.join(p),
+                // No `path`, and auto-discovery did not find it either.
+                None => {
+                    self.skip_target(&format!("bin `{name}`"), "declared in Cargo.toml but no src/bin/{name}.rs or src/bin/{name}/main.rs");
+                    continue;
+                }
+            };
+            if !path.exists() {
+                self.skip_target(
+                    &format!("bin `{name}`"),
+                    &format!("declared path `{}` does not exist", self.rel(&path)),
+                );
+                continue;
+            }
+            if extra.iter().any(|(_, p)| p == &path) {
+                continue;
+            }
+            match &root {
+                None => root = Some(path),
+                Some(_) => extra.push((name, path)),
+            }
+        }
+
+        // Examples and benches are compiled but are not the architecture. Not
+        // scanning them is a decision, so it is a diagnostic and not a silence.
+        for t in self.manifest.non_architecture.clone() {
+            self.skip_target(&t, "not part of the architecture; not scanned");
+        }
+
         let mut out: Vec<Target> = root.map(Target::root).into_iter().collect();
         out.extend(extra.into_iter().map(|(n, p)| Target::extra(&n, p)));
         out
+    }
+
+    fn skip_target(&mut self, target: &str, why: &str) {
+        self.diagnostics.push(Diagnostic {
+            kind: DiagnosticKind::TargetSkipped,
+            file: "Cargo.toml".into(),
+            line: 0,
+            detail: format!("{target} was not scanned: {why}"),
+        });
     }
 
     pub fn run(mut self) -> Result<Model> {
@@ -875,7 +929,12 @@ impl Scanner {
     }
 
     fn rel(&self, p: &Path) -> String {
+        // Under `src/`, the usual crate-relative path. Outside it — a
+        // `[[bin]] path = "tools/cli.rs"` — fall back to the crate directory,
+        // so the model never carries an absolute path from the machine that
+        // happened to run the scan.
         p.strip_prefix(&self.root)
+            .or_else(|_| p.strip_prefix(&self.crate_dir))
             .unwrap_or(p)
             .display()
             .to_string()
@@ -1230,7 +1289,18 @@ fn extern_key(path: &str) -> String {
     }
 }
 
-fn read_manifest(p: &Path) -> Result<(String, BTreeSet<String>)> {
+/// What `Cargo.toml` says about the crate, as far as the scanner cares.
+struct Manifest {
+    project: String,
+    externs: BTreeSet<String>,
+    /// `[[bin]]` entries: the declared name, and its `path` if it has one.
+    bins: Vec<(String, Option<String>)>,
+    /// `[[example]]` and `[[bench]]` names. Compiled by cargo, not part of
+    /// the architecture, and not scanned — which is a thing to say out loud.
+    non_architecture: Vec<String>,
+}
+
+fn read_manifest(p: &Path) -> Result<Manifest> {
     let src = std::fs::read_to_string(p)
         .with_context(|| format!("no Cargo.toml at {}", p.display()))?;
     let v: toml::Value = src.parse().context("Cargo.toml is not valid TOML")?;
@@ -1240,13 +1310,41 @@ fn read_manifest(p: &Path) -> Result<(String, BTreeSet<String>)> {
         .and_then(|n| n.as_str())
         .unwrap_or("unknown")
         .to_string();
-    let mut deps = BTreeSet::new();
+    let mut externs = BTreeSet::new();
     for table in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(t) = v.get(table).and_then(|d| d.as_table()) {
             for k in t.keys() {
-                deps.insert(k.replace('-', "_"));
+                externs.insert(k.replace('-', "_"));
             }
         }
     }
-    Ok((name, deps))
+
+    let str_of = |t: &toml::Value, k: &str| t.get(k).and_then(|x| x.as_str()).map(String::from);
+
+    let mut bins = Vec::new();
+    if let Some(list) = v.get("bin").and_then(|b| b.as_array()) {
+        for b in list {
+            let Some(declared) = b.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            bins.push((declared.to_string(), str_of(b, "path")));
+        }
+    }
+    let mut non_architecture = Vec::new();
+    for key in ["example", "bench"] {
+        if let Some(list) = v.get(key).and_then(|b| b.as_array()) {
+            for t in list {
+                if let Some(n) = t.get("name").and_then(|n| n.as_str()) {
+                    non_architecture.push(format!("{key} `{n}`"));
+                }
+            }
+        }
+    }
+
+    Ok(Manifest {
+        project: name,
+        externs,
+        bins,
+        non_architecture,
+    })
 }

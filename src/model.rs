@@ -154,6 +154,9 @@ pub enum DiagnosticKind {
     CfgExcluded,
     ParseFailure,
     MissingModule,
+    /// A compilation unit cargo would build that this scan did not cover. A
+    /// narrowed scan that does not say so is the failure this project names.
+    TargetSkipped,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

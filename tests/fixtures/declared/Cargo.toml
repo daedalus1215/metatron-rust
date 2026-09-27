@@ -1,0 +1,21 @@
+[package]
+name = "declared"
+version = "0.0.0"
+edition = "2021"
+
+# A binary whose root file is not under src/ at all. Cargo builds it, so it is
+# part of the crate, and a scanner that only looks in src/ misses it.
+[[bin]]
+name = "cli"
+path = "tools/cli.rs"
+
+# A declared path that does not exist. A broken manifest is worth saying out
+# loud rather than quietly narrowing the scan to everything else.
+[[bin]]
+name = "gone"
+path = "tools/gone.rs"
+
+# Compiled by cargo, not part of the architecture.
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
