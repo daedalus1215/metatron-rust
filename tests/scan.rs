@@ -14,7 +14,7 @@ fn sym<'a>(m: &'a Model, id: &str) -> &'a Symbol {
     m.symbol(id).unwrap_or_else(|| panic!("no symbol {id}"))
 }
 
-fn local_edges<'a>(m: &'a Model, kind: EdgeKind) -> Vec<(&'a str, &'a str)> {
+fn local_edges(m: &Model, kind: EdgeKind) -> Vec<(&str, &str)> {
     m.edges
         .iter()
         .filter(|e| e.kind == kind)
@@ -409,8 +409,8 @@ fn arioch_io_leak_into_app_is_visible() {
             _ => None,
         })
         .collect();
-    assert!(leaks.iter().any(|p| *p == "std::fs::read_to_string"));
-    assert!(leaks.iter().any(|p| *p == "std::process::Command::new"));
+    assert!(leaks.contains(&"std::fs::read_to_string"));
+    assert!(leaks.contains(&"std::process::Command::new"));
 }
 
 #[test]

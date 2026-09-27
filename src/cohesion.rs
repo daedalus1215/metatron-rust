@@ -321,7 +321,7 @@ fn one_type(
                 .iter()
                 .filter(|&&mi| touch[mi].contains(f.as_str()))
                 .count();
-            if n > 0 && best.map_or(true, |(bn, _)| n > bn) {
+            if n > 0 && best.is_none_or(|(bn, _)| n > bn) {
                 best = Some((n, gi));
             }
         }
@@ -512,7 +512,7 @@ fn communities(
         let mut best: Option<(f64, (usize, usize))> = None;
         for (&(x, y), &wxy) in &between {
             let dq = wxy / m - dtot[&x] * dtot[&y] / (2.0 * m * m);
-            if dq > 1e-12 && best.map_or(true, |(bq, _)| dq > bq) {
+            if dq > 1e-12 && best.is_none_or(|(bq, _)| dq > bq) {
                 best = Some((dq, (x, y)));
             }
         }

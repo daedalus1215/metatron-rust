@@ -1043,6 +1043,7 @@ fn mixed_layer_module(x: &Ctx) -> Finding {
 ///   under-covers;
 /// * decide it here — record `unwrap`/`expect` calls in the model, then this
 ///   becomes an ordinary check over the domain layer.
+///
 /// Every symbol the classifier calls `domain/`, checked for the calls that
 /// abort instead of returning: `unwrap`, `expect`, and their `_err` forms.
 ///

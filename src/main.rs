@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(
@@ -474,8 +474,9 @@ fn classify(dir: &PathBuf, verbose: bool, json: bool) -> Result<u8> {
     Ok(0)
 }
 
+#[allow(clippy::too_many_arguments)] // one parameter per flag of one subcommand
 fn check(
-    dir: &PathBuf,
+    dir: &Path,
     all: bool,
     json: bool,
     only: &[String],
@@ -864,7 +865,7 @@ fn locate(s: &metatron::Scorecard, v: &metatron::baseline::Entry) -> String {
         .unwrap_or_else(|| format!("{} -> {}", v.from, v.to))
 }
 
-fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<u8> {
+fn baseline_cmd(dir: &Path, write: bool) -> Result<u8> {
     let s = metatron::scorecard::build(dir)?;
     let (next, out) =
         metatron::baseline::update(&s.report, &s.baseline, &s.model.project, s.coverage());
@@ -916,7 +917,7 @@ fn baseline_cmd(dir: &PathBuf, write: bool) -> Result<u8> {
     Ok(0)
 }
 
-fn views(dir: &PathBuf, name: Option<&str>, out: Option<PathBuf>) -> Result<u8> {
+fn views(dir: &Path, name: Option<&str>, out: Option<PathBuf>) -> Result<u8> {
     let s = metatron::scorecard::build(dir)?;
     let out = out.unwrap_or_else(|| dir.join(".metatron/views"));
 

@@ -132,12 +132,12 @@ impl BodyScan {
             // A trailing call is not part of the chain: `entry.tags.join(..)`
             // reaches one field deep and then does something with it,
             // which is not reaching through the object graph.
-            if is_call {
-                chain.pop();
-            } else if matches!(
-                t.get(j),
-                Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis
-            ) {
+            if is_call
+                || matches!(
+                    t.get(j),
+                    Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis
+                )
+            {
                 chain.pop();
             }
             if chain.len() >= 3 {

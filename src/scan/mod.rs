@@ -1155,15 +1155,12 @@ impl Scanner {
         } else {
             dir.join(stem)
         };
-        for cand in [
+        [
             base.join(format!("{name}.rs")),
             base.join(name).join("mod.rs"),
-        ] {
-            if cand.exists() {
-                return Some(cand);
-            }
-        }
-        None
+        ]
+        .into_iter()
+        .find(|c| c.exists())
     }
 }
 
