@@ -1,0 +1,10 @@
+[package]
+name = "ws-package"
+version = "0.0.0"
+edition = "2021"
+
+# A crate that is also a workspace root: it has its own source *and* manages a
+# member. The root package is scannable and the member is a separate crate, so
+# the tool scans one and names the other.
+[workspace]
+members = ["inner"]

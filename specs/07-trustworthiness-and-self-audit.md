@@ -169,10 +169,17 @@ dressed as a whole one is the thing this spec exists to stop:
   with the file deleted is a broken manifest, and the tool says which target it
   could not open. It does not report a scan of the remaining targets as if it
   were the crate.
-- **A workspace root.** Given a directory whose `Cargo.toml` declares members and
-  which is not itself a member, metatron names every member in a diagnostic and
-  scans nothing. Resolving the full workspace graph is a dependency this project
-  declined; the honest substitute is refusing to look like it did.
+- **A workspace member.** Resolving the full workspace graph is a dependency
+  this project declined, so metatron scans one crate and names the rest. Which
+  of two shapes it is depends on whether the directory has a package of its
+  own:
+  - a **virtual manifest** — `[workspace]` and no `[package]` — has no source at
+    all. That is an error, not an empty model: a model with zero symbols named
+    `unknown` is a worse answer than a sentence naming the members and saying
+    which directory to point at instead.
+  - a **package that is also a workspace root** has its own source, so it is
+    scanned normally and the members beside it become one `TargetSkipped`
+    diagnostic. Each member is a separate crate with its own architecture.
 
 `read_manifest` (`src/scan/mod.rs:1099`) already parses `Cargo.toml` into a
 `toml::Value` and returns the package name and dependency set. Entry points come
@@ -355,8 +362,12 @@ the coverage problem, and it is caught by the same assertion.
   whole crate.
 - A declared `[[example]]` produces a `TargetSkipped` diagnostic. Not scanning
   it is a decision, and a decision gets said out loud.
-- Pointed at a workspace root, metatron names every member in a diagnostic and
-  scans no member silently.
+- Pointed at a workspace root that is also a package, metatron scans that
+  package, does not cross into `inner`, and names `inner` in a
+  `TargetSkipped` diagnostic.
+- Pointed at a virtual manifest, metatron fails with an error naming the
+  members and the directories to point at instead. It does not return a model
+  with zero symbols.
 - A dual-target scan reports its targets separately in `stats`, and the two module
   tree roots have distinct ids.
 - Every subcommand exits 2 on a scan or config error — all seven asserted, not

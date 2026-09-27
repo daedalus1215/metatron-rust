@@ -224,6 +224,10 @@ impl Scanner {
             self.skip_target(&t, "not part of the architecture; not scanned");
         }
 
+        // A crate that also manages a workspace has its own source, so it is
+        // scannable — and the members beside it are not part of it.
+        self.note_workspace_members();
+
         let mut out: Vec<Target> = root.map(Target::root).into_iter().collect();
         out.extend(extra.into_iter().map(|(n, p)| Target::extra(&n, p)));
         out
@@ -238,13 +242,52 @@ impl Scanner {
         });
     }
 
+    /// True when this directory manages other crates. Resolving the whole
+    /// workspace graph is a dependency this project declined, so the honest
+    /// substitute is naming the members rather than looking like it crossed
+    /// into them.
+    fn is_workspace_root(&self) -> bool {
+        !self.manifest.members.is_empty()
+    }
+
+    fn note_workspace_members(&mut self) {
+        if !self.is_workspace_root() {
+            return;
+        }
+        let members = self.manifest.members.join(", ");
+        self.skip_target(
+            "workspace members",
+            &format!(
+                "{members} — each is a separate crate with its own architecture; \
+                 point metatron at one of them to scan it"
+            ),
+        );
+    }
+
     pub fn run(mut self) -> Result<Model> {
         let targets = self.targets();
-        anyhow::ensure!(
-            !targets.is_empty(),
-            "no lib.rs, main.rs, or src/bin/* under {}",
-            self.root.display()
-        );
+        if targets.is_empty() {
+            // A virtual manifest: a workspace root with no crate of its own.
+            // There is nothing here to model, and a model with zero symbols
+            // and the name "unknown" is a worse answer than a sentence saying
+            // which directory to point at instead.
+            anyhow::ensure!(
+                !self.is_workspace_root(),
+                "{} is a workspace root with no package of its own.\n\
+                 Members are separate crates: point metatron at one of them.\n  {}",
+                self.crate_dir.display(),
+                self.manifest
+                    .members
+                    .iter()
+                    .map(|m| format!("  {}", self.crate_dir.join(m).display()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            anyhow::bail!(
+                "no lib.rs, main.rs, or src/bin/* under {}",
+                self.root.display()
+            );
+        }
         for t in &targets {
             self.walk_module(&t.mod_id, &t.path, true)?;
         }
@@ -1298,6 +1341,9 @@ struct Manifest {
     /// `[[example]]` and `[[bench]]` names. Compiled by cargo, not part of
     /// the architecture, and not scanned — which is a thing to say out loud.
     non_architecture: Vec<String>,
+    /// `[workspace] members`. Each is a separate crate with its own
+    /// architecture, and this scan does not cross into them.
+    members: Vec<String>,
 }
 
 fn read_manifest(p: &Path) -> Result<Manifest> {
@@ -1341,10 +1387,22 @@ fn read_manifest(p: &Path) -> Result<Manifest> {
         }
     }
 
+    let members = v
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(Manifest {
         project: name,
         externs,
         bins,
         non_architecture,
+        members,
     })
 }

@@ -87,6 +87,41 @@ fn derives_are_captured() {
 /// that only looks under `src/` misses it, and reports what it did scan as
 /// though it were the crate.
 #[test]
+fn a_workspace_root_says_which_members_it_did_not_cross_into() {
+    // A crate that is also a workspace root has its own source, so it is
+    // scanned — and the member beside it is a separate crate that is not.
+    let m = fixture("ws-package");
+    assert!(
+        m.symbol("root_fn").is_some(),
+        "the root package should still be scanned"
+    );
+    assert!(
+        m.symbol("inner_fn").is_none(),
+        "the scan crossed into a workspace member"
+    );
+
+    let named: Vec<_> = m
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::TargetSkipped)
+        .filter(|d| d.detail.contains("workspace members"))
+        .collect();
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert!(named[0].detail.contains("inner"), "{}", named[0].detail);
+}
+
+#[test]
+fn a_virtual_manifest_is_an_error_naming_the_members() {
+    // Nothing to model, and a model with zero symbols named "unknown" is a
+    // worse answer than a sentence saying which directory to point at.
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ws-virtual");
+    let err = metatron::scan(&p).expect_err("a virtual manifest should not scan");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("workspace root"), "{msg}");
+    assert!(msg.contains("core") && msg.contains("cli"), "{msg}");
+}
+
+#[test]
 fn a_declared_bin_whose_root_is_outside_src_is_scanned() {
     let m = fixture("declared");
 
