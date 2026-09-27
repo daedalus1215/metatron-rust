@@ -8,6 +8,7 @@
 //! "architecture regressed" and `2` as "the tool is broken" cannot tell a real
 //! regression from a typo in a path if the tool reports both as `1`.
 
+use std::path::PathBuf;
 use std::process::Command;
 
 const NO_ANSWER: i32 = 2;
@@ -306,4 +307,48 @@ fn scan_names_the_unmatched_files_too() {
         stdout.contains("matched no pattern") && stdout.contains("main.rs"),
         "{stdout}"
     );
+}
+
+#[test]
+fn the_printed_exclusions_are_exactly_the_rules_that_do_not_gate() {
+    // The scorecard's `enforcement` line, the baseline's exclusion list and the
+    // "outside the ratchet" block under `check` are three renderings of one
+    // predicate, and each was written separately. This reads the block the
+    // binary actually printed and compares it, rule for rule, with `gates()`
+    // evaluated in the library: a fifth call site that filtered on `kind`, or on
+    // `gate` alone, or on `status == Violated`, would show up here as a name
+    // that is on one side and not the other.
+    for fixture in ["leaky", "mixed", "gnarly", "panics"] {
+        let out = run(&["check", &format!("tests/fixtures/{fixture}")]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let block = stdout
+            .split("outside the ratchet")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{fixture}: no ratchet block\n{stdout}"));
+        let printed: Vec<&str> = block
+            .lines()
+            .skip(1)
+            .take_while(|l| l.starts_with("    "))
+            .filter_map(|l| l.split_whitespace().next())
+            .collect();
+
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(fixture);
+        let report = metatron::scan(&dir).unwrap();
+        let cfg = metatron::classify::Config::load(&dir).unwrap();
+        let checked =
+            metatron::rules::check(&report, &cfg, &metatron::classify::classify(&report, &cfg));
+
+        let not_gating: Vec<&str> = checked
+            .findings
+            .iter()
+            .filter(|f| !f.gates())
+            .map(|f| f.id)
+            .collect();
+        assert_eq!(
+            printed, not_gating,
+            "{fixture}: the ratchet block and gates() name different rules"
+        );
+    }
 }
