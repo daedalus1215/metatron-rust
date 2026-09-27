@@ -40,10 +40,11 @@ single-crate, which is **Option A**, where the same page prescribes "visibility
 
 So today, in both target codebases, **zero rules are compiler-enforced. Every
 rule in the glossary is convention.** That is the gap this tool exists to fill,
-and the tool should say so out loud on every run:
+and the tool says so out loud on every run — arioch, 2026-09-27:
 
 ```
-15 rules · 0 compiler-enforced · 11 checked here · 4 advisory
+enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+                       ^ no rule is enforced by anything but this tool
 ```
 
 That line inverts as the project matures. Do the workspace split and the
@@ -140,16 +141,22 @@ could do.
 
 ```
 metatron check · arioch
+  rules           22     upheld 0 · violated 3 · unevaluable 19 · pass 0
+  enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+                         ^ no rule is enforced by anything but this tool
 
-  unevaluable          5   no ports exist
-    call-through-port · port-signature-purity · port-has-fake
-    fat-trait · concrete-outside-root
+  violations       3     new 3 · known 0 · fixed 0
 
-  violations          31
-    domain-no-io       —  no domain/ module exists; all 8 modules unclassified
-    no-global-mut       1  config.rs:18  CONFIG_OVERRIDE: static Mutex<Option<PathBuf>>
-    mixed-layer-module  —  unevaluable (coverage 0%)
-    ...
+  cohesion         1     type(s) over threshold
+                         App  app.rs:50  3 components, 46 methods  [Tangled]
+
+  NEW
+    time-injected          app.rs:1925  app::iso_now calls std::time::SystemTime::now directly
+                           51533f5c65e0
+    no-global-mut          config.rs:5     CONFIG_OVERRIDE: static holding Mutex — `std::sync::LazyLock<parking_lot::Mutex<Option<PathBuf>>>`
+                           550777db98cf
+    time-injected          app.rs:244   app::App::log_action calls std::time::SystemTime::now directly
+                           d9fc49a718ca
 ```
 
 ### Findings shape
@@ -209,7 +216,7 @@ And on the conforming fixture crate from spec 03:
 ## Implementation notes (2026-08-31)
 
 `src/rules.rs`, `metatron check [path] [--all] [--json]`, exit 1 on a
-gating violation. 17 tests in `tests/rules.rs` and a new
+gating violation. 21 tests in `tests/rules.rs` and a new
 `tests/fixtures/leaky` crate — the conforming layout with every violation
 in the table deliberately introduced.
 
@@ -223,21 +230,37 @@ calls it was delegating about.
 
 ```
 metatron check · arioch
-  22 rules · 0 compiler-enforced · 15 checked here · 7 advisory
-  coverage 1/83 symbols (1.2%) · crate-graph option A
+  coverage         1/83 symbols (1.2%)  !
 
-  unevaluable       17   premise absent — NOT a pass
-  violations         7
-  ! no-global-mut       1  config.rs:5  CONFIG_OVERRIDE: static holding Mutex
-  ! time-injected       2  app.rs:244   log_action calls SystemTime::now
-  ? renders-off-store   4  ui.rs:78     render_sidebar reaches app.registry.entries
+  rules           22     upheld 0 · violated 3 · unevaluable 19 · pass 0
+  enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+                         ^ no rule is enforced by anything but this tool
+
+  violations       3     new 3 · known 0 · fixed 0
+
+  NEW
+    time-injected          app.rs:1925  app::iso_now calls std::time::SystemTime::now directly
+    no-global-mut          config.rs:5  CONFIG_OVERRIDE: static holding Mutex
+    time-injected          app.rs:244   app::App::log_action calls SystemTime::now directly
 ```
 
-**Seventeen of twenty-two rules are unevaluable against arioch.** That is
-the correct output and the reason the `Unevaluable` status exists. The
+Four heuristic findings are reported under `ADVISORY` and excluded from the
+ratchet, and the six rules that never gate are listed under `outside the
+ratchet`; both blocks are cut here for width.
+
+**Nineteen of twenty-two rules are unevaluable against arioch.** That is
+the correct output and the reason the `Unevaluable` status exists: arioch has
+one classified symbol, so a rule about the domain has nothing to look at. The
 conforming fixture inverts it: zero unevaluable, zero gating violations,
-five upheld inversion arrows. The leaky fixture fires all twelve
-decidable rules that have a premise there, plus every heuristic.
+five upheld inversion arrows. The leaky fixture fires every decidable rule
+that has a premise there, plus every heuristic.
+
+The block above is a real run of the current binary (2026-09-27), not an
+earlier draft of one. The output format changed twice since this section was
+written — the enforcement line and the `outside the ratchet` list did not exist
+— and the numbers moved with it: `panic-in-domain` stopped being delegated, so
+the advisory count fell from 7 to 6, and a rule became decidable, so the
+unevaluable count rose.
 
 ### The spec's `flow-skip` derivation contradicts its own source
 
@@ -304,15 +327,23 @@ in `domain/use_cases/` and reports the ones the classifier declined.
 ### The enforcement line
 
 ```
-22 rules · 0 compiler-enforced · 15 checked here · 7 advisory
+enforcement            compiler 0 · metatron 16 · clippy 0 · advisory 6
+                       ^ no rule is enforced by anything but this tool
 ```
 
-Zero, because both target crates are `crate-graph.md` Option A. Setting
-`crate_graph = "B"` in `metatron.toml` moves the three layer rules to
-`tier: compiler` and `status: delegated`, and `checked_here` drops to 12 —
-a rule the build already guarantees does not need a second opinion, and
-reporting it as a metatron pass would overstate the tool's contribution.
-There is a test for that transition.
+Zero, because both target crates are `crate-graph.md` Option A. The four
+numbers are a partition of the 22 rules, each counted once by whoever enforces
+it: a `Delegated` rule is counted under the tool that took it, not under this
+one.
+
+Setting `crate_graph = "B"` in `metatron.toml` moves the three layer rules to
+`tier: compiler` and `status: delegated`, and the line becomes
+`compiler 3 · metatron 13 · clippy 0 · advisory 6` — a rule the build already
+guarantees does not need a second opinion, and reporting it as a metatron pass
+would overstate the tool's contribution.
+`the_workspace_split_hands_three_rules_to_the_compiler` in `tests/rules.rs`
+asserts that transition rather than this paragraph, so the numbers here cannot
+drift away from the code without the test noticing the code moved.
 
 It is not auto-detected. Being a workspace is not the same as having
 `domain` as a crate that cannot see `rusqlite`, and guessing here would

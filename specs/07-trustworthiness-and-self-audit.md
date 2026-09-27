@@ -1,6 +1,6 @@
 ---
 title: Trustworthiness and self-audit
-status: draft
+status: implemented
 project: metatron-rust
 location: specs/07-trustworthiness-and-self-audit.md
 created: 2026-09-26

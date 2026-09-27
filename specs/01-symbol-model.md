@@ -175,28 +175,37 @@ model reports its own ignorance:
 
 ### Model output
 
-`.metatron/model.json`, serde-serialized, deliberately keeping metatron's
-existing top-level shape where the meaning carries over — `stats`, `coverage`,
-`findings`, `diagnostics`, `violations`, `churn` — so the templates in spec 06
-and the baseline logic in spec 05 need the minimum adaptation.
-
-New or changed:
+`.metatron/model.json`, serde-serialized, top level:
 
 ```jsonc
 {
-  "symbols":  [ /* Symbol */ ],
-  "edges":    [ /* Edge */ ],
-  "modules":  [ /* module tree with containment */ ],
-  "impls":    [ /* trait -> concrete bindings, extracted for convenience */ ],
-  "externs":  { "rusqlite": 14, "ratatui": 88, "std::fs": 9 },
-  "cohesion": [ /* spec 02 */ ],
+  "project": "arioch",  "root": "...",  "generated_at": "...",
+  "stats":   { /* files, modules, symbols, types, fns, edges, loc, targets */ },
+  "modules": [ /* module tree with containment */ ],
+  "symbols": [ /* Symbol */ ],
+  "edges":   [ /* Edge */ ],
+  "impls":   [ /* trait -> concrete bindings, extracted for convenience */ ],
+  "externs": { "rusqlite": 14, "ratatui": 88, "std::fs": 9 },
+  "foreign_field_reads": [ /* spec 02 LCOM4 input */ ],
   "diagnostics": [ /* Diagnostic */ ]
 }
 ```
 
-`fileNodes` / `fileLinks` are retained as a **projection** of the symbol graph —
-collapse symbols to their module, dedupe edges — so metatron's existing views
-keep working while the symbol-level views are built in spec 06.
+**`coverage`, `findings`, `violations` and `churn` are not in the model, and
+this section used to say they were.** The scan is a measurement of the crate;
+a verdict is a judgement about it, and a judgement that gets cached next to its
+inputs goes stale the moment a rule changes — which is the difference between
+`metatron.baseline.toml` (a file a human accepts, with a diff) and a number
+baked into a generated model. Coverage comes from the classifier, findings from
+spec 04, violations and the diff from spec 05's baseline, churn from `git log`.
+All four are computed per run, from this model. `metatron scan --stdout .` and
+`metatron check .` therefore disagree on purpose, and neither is wrong.
+
+`fileNodes` / `fileLinks` are **projections** of the symbol graph — collapse
+symbols to their module, dedupe edges — computed on demand in
+`Model::file_links()` rather than stored. Keeping them in the file would mean
+the model carried two answers to the same question and a scan that wrote one
+and not the other.
 
 ### Churn
 

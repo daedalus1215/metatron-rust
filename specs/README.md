@@ -1,6 +1,6 @@
 ---
 title: metatron-rust specs — index and sequencing
-status: draft
+status: implemented
 project: metatron-rust
 location: specs/README.md
 created: 2026-08-29
