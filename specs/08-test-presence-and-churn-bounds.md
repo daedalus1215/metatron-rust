@@ -1,6 +1,6 @@
 ---
 title: Test Presence and Churn Bounds
-status: draft
+status: implemented
 project: metatron-rust
 location: specs/08-test-presence-and-churn-bounds.md
 created: 2026-09-27
@@ -113,7 +113,15 @@ reclassifying test code. The verdict map is also compared with and without
 
 The only attribution available without a compiler is the call graph the model
 already carries. A symbol is **exercised** when some test symbol has a `Call` edge
-to it. Everything else is **not known to be exercised**.
+to it — or when a test *implements* it. The second half was not in the first draft
+of this spec, and the fixture caught it: the ordinary way a suite touches a port
+is by faking it, and an `impl` block is not a call. A premise that counted only
+calls reported every port of a crate whose suite is entirely fakes as untested,
+which is the confident wrong answer this project keeps refusing to print.
+`ImplBinding` already carries `is_test` and the resolved `trait_id`, so this is a
+read rather than a resolution of its own.
+
+Everything else is **not known to be exercised**.
 
 `untested-port` is decidable on that premise and says exactly this:
 
@@ -200,7 +208,7 @@ policy question this repository has not answered.
 
 | rule | premise | decidable | tier | why |
 |------|---------|-----------|------|-----|
-| `untested-port` | a test symbol calls the port | yes | advisory | the premise is in the model, the judgment is not |
+| `untested-port` | a test symbol calls or implements the port | yes | advisory | the premise is in the model, the judgment is not |
 | `churn-concentration` | the crate has a history, and the file ranks in the top decile of churn and dependents | yes | advisory | correlates with being important |
 
 Both are decidable, so neither may report `Unevaluable` for a reason that is not
@@ -238,10 +246,19 @@ that pins enforcement status, extended so a new rule cannot arrive without a tie
 - The verdict map is identical with and without the test target present.
 - `untested-port` reports the count of scanned test targets in its reason, and its
   reason never contains the words "untested" or "coverage" as a claim.
+- A test that *implements* a port satisfies the rule. A fixture whose suite is
+  entirely fakes and that calls nothing reports no ports, and one port left
+  unfaked is named.
 - With no test target scanned, `untested-port` is `Unevaluable` with a reason
   naming what was missing — not 40 findings.
 - `churn-concentration` is `Unevaluable` when the window holds fewer than 20
   commits, and its reason says how many there were.
+- A crate that is not a git repository leaves `churn-concentration`
+  `Unevaluable` with git's own reason. Consequently `--require-evaluable` fails
+  on any directory that is not a repository, which is correct and surprising
+  enough to be worth stating: a fixture sweep cannot evaluate this rule, so the
+  architecture test exempts it by name and `tests/churn.rs` evaluates it against
+  this repository instead.
 - `Churn.reason` is non-empty whenever `available` is false, and names which of
   git-missing, no-commits, and no-files-covered applied.
 - The hotspots view's payload and the rules read churn from one implementation;
@@ -251,3 +268,121 @@ that pins enforcement status, extended so a new rule cannot arrive without a tie
   `enforcement` partition still sums to the number of findings.
 - `cargo fmt --check`, `cargo clippy --all-targets` and `cargo test` are clean, and
   no test is ignored to make it pass.
+
+## Implementation notes (2026-09-27)
+
+Four commits, in the order the dependencies forced: the spec, then the model's
+blind spot, then the measurement, then the two rules.
+
+### Test targets are scanned
+
+`targets()` gained the rest of what cargo would build — declared `[[test]]` paths
+and the auto-discovered `tests/*.rs` and `tests/*/main.rs` — and `Target` gained a
+kind, so a test target is a third thing rather than a second binary. Every symbol
+in a test target is `is_test`, seeded at the target rather than inferred from
+`#[test]`: the target is the premise. `Model.stats.targets` reports them with
+`kind: "test"`, which is the count `untested-port` puts in its reason.
+
+A declared `[[test]]` whose path does not exist is a `TargetSkipped` diagnostic,
+on the same terms as a missing `[[bin]]`. Cargo would fail to build that crate;
+a scanner that said nothing would be the only thing in the toolchain that had not
+noticed.
+
+The `ports` fixture grew a `tests/clock.rs`, which is what gave the conforming
+crate a suite to have a premise about — and, as a side effect, two extra
+inversions, because a test fake *is* an inversion. `the_inversion_arrow_is_
+counted_as_the_architecture_working` now asserts the split (five in production,
+two in `tests/`) rather than a single 7, so a reader can see what the rule counts
+without re-deriving it.
+
+### The guard on test code, and how weak it first was
+
+The invariant is that a symbol in a test target is classified to the `test`
+layer and to no other. `test` is a real layer in `patterns-rust` — *"fakes and
+specs"*, `src/profiles/patterns-rust.toml:30-32` — so the guarantee is not
+"invisible" but "in `test` and nowhere else".
+
+The first version of this guard asserted that no test-target symbol was
+classified to *any* configured layer, which was wrong in a way worth recording:
+`test` is configured, so the assertion failed immediately. The second version
+compared the whole verdict map with and without `tests/`, which passed — and
+passed under mutation too. Removing the `is_test` flag from test targets entirely
+did not change a single verdict, because a `test`-layered symbol is invisible to
+every layering rule whether or not the flag is set. A guard that cannot fail is
+not a guard, so the fixture now defines `fn helper()` inside `tests/`, a name its
+own patterns would classify as `domain`: deleting the classifier's test-target
+branch now fails the test. That is the difference between an argument and a check.
+
+### Churn moved, and stopped being an empty map
+
+`src/churn.rs` owns the measurement. Three things changed rather than moved:
+
+- **The formula left the browser.** `commits * (1 + deps)` was JavaScript in
+  `templates/hotspots.html` and is now `churn::score`, called from Rust, with
+  `deps` and `score` in the payload. The template reads both instead of counting
+  fan-in itself. A first attempt kept the score as both a field and a method and
+  serialised the field, so every file reported `score: 0` while the chart drew
+  the old computation — caught by reading the rendered payload rather than by a
+  test, which is why `every_file_reports_the_score_the_formula_gives` exists now.
+- **Absence has a channel.** `Churn { available, reason }`, and `reason` is
+  non-empty whenever `available` is false. A repository with no commits makes
+  `git log` *fail* rather than return an empty log, so that case carries git's
+  own sentence rather than a phrase invented here.
+- **The window is stated.** There is no `--since`; the log is the whole history
+  and `since` is where it starts. The stat row now says so, and every
+  `churn-concentration` instance carries `over N commit(s) since DATE`.
+
+`deps` is counted from `Model::file_links`, the same definition of "imports" the
+rest of the tool uses, and `the_dependents_are_the_edges_the_model_already_has`
+recounts it independently so a change to that definition cannot quietly change
+the number and its check together.
+
+### The two rules, and what they are not
+
+`untested-port`'s premise had to become "calls **or** implements" after the
+fixture demonstrated the narrow version was wrong — a suite of pure fakes calls
+nothing and exercises everything. That is the single most important correction in
+this spec, and it was found by a fixture rather than by reading.
+
+Both rules are `advisory`, pinned in `tests/rules.rs` beside the six that were
+already warnings, with the reasoning in the test. Neither gates: a gate that
+fires on every port of a crate whose suite this tool did not scan, and hardest on
+the file someone is actively working on, is a gate that gets switched off.
+
+`churn-concentration` cannot be evaluated on a fixture at all, because a fixture
+directory is not a repository. `assert_no_unevaluable` grew an
+`assert_no_unevaluable_except` for it — an exemption with a named owner rather
+than a deleted guard, and
+`tests/churn.rs::the_churn_rule_is_decidable_against_a_real_repository` is the
+repayment: the rule is decidable, is evaluated against this repository, and every
+instance it produces carries its window.
+
+That exemption has a consequence worth writing down: **`--require-evaluable` now
+fails on any directory that is not a git repository**, with
+`churn-concentration` named. Correct, and surprising enough that the two CLI tests
+for the flag now run against a temporary repository with 25 real commits under
+`src/` rather than against a fixture.
+
+### Measured
+
+- 24 rules, 16 of which gate. `advisory 8`, up from 6.
+- 138 tests across 9 binaries, 0 ignored. `cargo clippy --all-targets` clean.
+- On `../arioch`: `churn-concentration` names 4 files, `app.rs` holding 32% of the
+  crate's churn with 1 of its 8 committed files leaning on it, over 40 commits
+  since 2026-08-26. `untested-port` is `Unevaluable` — "no port trait exists" —
+  which is the correct answer for a codebase that has no ports, and is the reason
+  the rule says what it says rather than what its name suggests.
+- On this repository: `untested-port` is `Unevaluable` (no ports),
+  `churn-concentration` reports nothing (no file is in the top decile on both
+  axes — the churn is spread across 20 files and every one of them is depended on
+  by fewer than a tenth of the maximum).
+
+### What this spec did not do
+
+No coverage percentage, because that needs a compiler. No attribution beyond a
+direct call or an impl, so a port exercised only through its caller still reads as
+unexercised — stated in every reason string rather than smoothed over. No window
+other than all of history; `--since` is a flag nobody asked for yet. And the
+dependent count that makes `churn-concentration` a hotspot is a count of *files
+that import a file*, which is a proxy for coupling and says nothing about whether
+the coupling is a good idea.

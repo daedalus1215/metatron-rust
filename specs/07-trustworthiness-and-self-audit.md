@@ -490,9 +490,15 @@ executed by a test that skips when `../arioch` is absent.
   directions. The partition existed and summed wrong, because a `Delegated` rule
   was counted as clippy's when clippy was not enforcing it.
 - 125 tests across 8 binaries, 0 ignored. `cargo clippy --all-targets` is clean.
-- The sample in `README.md` is what this binary prints on `../arioch`: 113
-  symbols, coverage 1/113 (0.9%), 1 of 22 rules decidable, 3 new violations,
-  exit 1.
+- The sample in `README.md` is what this binary prints on `../arioch`, and
+  `tests/docs.rs` re-runs the scan and requires the sample to appear verbatim in
+  its output. As of 2026-09-27 that is 166 symbols over 8 files, coverage 1/83
+  (1.2%) — one symbol in eighty-three matches a pattern, which is the number the
+  whole toolchain of rules is standing on — and 24 rules, of which one is
+  decidable on that crate. The exact figures move whenever arioch does, which is
+  why the assertion is "these lines are a real run" rather than "these lines are
+  correct": a sample that is checked for provenance cannot go stale, and a sample
+  that is checked for equality is a test that fails every time somebody works.
 
 ### What this spec did not do
 
