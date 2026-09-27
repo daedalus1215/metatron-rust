@@ -44,9 +44,27 @@ struct ModuleCtx {
 /// with the root's, and so a call inside it still resolves:
 /// `join("(bin:foo)", "helper")` finds the symbol the walk recorded under that
 /// same id.
+#[derive(Clone, Copy, PartialEq)]
+enum TargetKind {
+    Lib,
+    Bin,
+    Test,
+}
+
+impl TargetKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            TargetKind::Lib => "lib",
+            TargetKind::Bin => "bin",
+            TargetKind::Test => "test",
+        }
+    }
+}
+
 struct Target {
     mod_id: String,
     path: PathBuf,
+    kind: TargetKind,
 }
 
 impl Target {
@@ -54,6 +72,7 @@ impl Target {
         Target {
             mod_id: String::new(),
             path,
+            kind: TargetKind::Lib,
         }
     }
 
@@ -61,6 +80,18 @@ impl Target {
         Target {
             mod_id: format!("(bin:{name})"),
             path,
+            kind: TargetKind::Bin,
+        }
+    }
+
+    /// A `[[test]]` target or an auto-discovered `tests/*.rs`. Its symbols are
+    /// test code by definition, so the whole target is marked rather than
+    /// guessed at from `#[test]` attributes.
+    fn test(name: &str, path: PathBuf) -> Self {
+        Target {
+            mod_id: format!("(test:{name})"),
+            path,
+            kind: TargetKind::Test,
         }
     }
 }
@@ -219,6 +250,66 @@ impl Scanner {
             }
         }
 
+        // Test targets are part of the crate and cargo would build them, so they
+        // are scanned. A suite that lives entirely in `tests/` is otherwise
+        // invisible, and a rule that asks whether anything is tested would be
+        // reporting on a file this tool never opened.
+        let mut tests: Vec<Target> = Vec::new();
+        let tests_dir = self.crate_dir.join("tests");
+
+        for (name, declared) in self.manifest.tests.clone() {
+            // No `path` means `tests/<name>.rs`, which is where cargo looks.
+            let path = self
+                .crate_dir
+                .join(declared.unwrap_or_else(|| format!("tests/{name}.rs")));
+            if !path.exists() {
+                self.skip_target(
+                    &format!("test `{name}`"),
+                    &format!("declared path `{}` does not exist", self.rel(&path)),
+                );
+                continue;
+            }
+            if tests.iter().any(|t| t.path == path) {
+                continue; // already covered by auto-discovery
+            }
+            tests.push(Target::test(&name, path));
+        }
+
+        // `tests/*.rs` and `tests/*/main.rs`, as cargo discovers them.
+        if let Ok(entries) = std::fs::read_dir(&tests_dir) {
+            let mut found: Vec<PathBuf> =
+                entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+            found.sort();
+            for path in found {
+                let (name, entry) =
+                    if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("test")
+                            .to_string();
+                        (stem, path)
+                    } else if path.is_dir() {
+                        let stem = path
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("test")
+                            .to_string();
+                        let entry = path.join("main.rs");
+                        if !entry.exists() {
+                            continue;
+                        }
+                        (stem, entry)
+                    } else {
+                        continue;
+                    };
+                if tests.iter().any(|t| t.path == entry) {
+                    continue;
+                }
+                tests.push(Target::test(&name, entry));
+            }
+        }
+
         // Examples and benches are compiled but are not the architecture. Not
         // scanning them is a decision, so it is a diagnostic and not a silence.
         for t in self.manifest.non_architecture.clone() {
@@ -231,6 +322,7 @@ impl Scanner {
 
         let mut out: Vec<Target> = root.map(Target::root).into_iter().collect();
         out.extend(extra.into_iter().map(|(n, p)| Target::extra(&n, p)));
+        out.extend(tests);
         out
     }
 
@@ -341,7 +433,7 @@ impl Scanner {
             );
         }
         for t in &targets {
-            self.walk_module(&t.mod_id, &t.path, true)?;
+            self.walk_module(&t.mod_id, &t.path, true, t.kind == TargetKind::Test)?;
         }
 
         self.note_cfg_gated();
@@ -375,7 +467,7 @@ impl Scanner {
             targets: targets
                 .iter()
                 .map(|t| TargetInfo {
-                    kind: if t.mod_id.is_empty() { "lib" } else { "bin" }.into(),
+                    kind: t.kind.as_str().into(),
                     name: target_name(&t.mod_id, &self.project),
                     file: self.rel(&t.path),
                 })
@@ -400,7 +492,13 @@ impl Scanner {
 
     // ---------------------------------------------------------- module tree
 
-    fn walk_module(&mut self, mod_id: &str, file: &Path, is_root: bool) -> Result<()> {
+    fn walk_module(
+        &mut self,
+        mod_id: &str,
+        file: &Path,
+        is_root: bool,
+        in_test: bool,
+    ) -> Result<()> {
         let src = std::fs::read_to_string(file)
             .with_context(|| format!("cannot read {}", file.display()))?;
         let rel = self.rel(file);
@@ -435,7 +533,7 @@ impl Scanner {
         });
         let mod_index = self.modules.len() - 1;
 
-        self.items(&ast.items, mod_id, &rel, file, is_root, false)?;
+        self.items(&ast.items, mod_id, &rel, file, is_root, in_test)?;
 
         let added = self.symbols.len() - before;
         self.modules[mod_index].symbols = added;
@@ -463,7 +561,7 @@ impl Scanner {
                             self.items(inner, &child, rel, file, is_root, test)?;
                         }
                         None => match self.module_file(file, mod_id, &name, is_root, &m.attrs) {
-                            Some(path) => self.walk_module(&child, &path, false)?,
+                            Some(path) => self.walk_module(&child, &path, false, in_test)?,
                             None => self.diagnostics.push(Diagnostic {
                                 kind: DiagnosticKind::MissingModule,
                                 file: rel.into(),
@@ -1481,10 +1579,11 @@ fn parent_of(id: &str) -> Option<String> {
 /// for the package; the rest are binaries, and their id already carries the
 /// name cargo gave them.
 fn target_name(mod_id: &str, project: &str) -> String {
-    match mod_id
+    let named = mod_id
         .strip_prefix("(bin:")
-        .and_then(|s| s.strip_suffix(')'))
-    {
+        .or_else(|| mod_id.strip_prefix("(test:"))
+        .and_then(|s| s.strip_suffix(')'));
+    match named {
         Some(n) => n.to_string(),
         None => project.replace('-', "_"),
     }
@@ -1509,6 +1608,10 @@ struct Manifest {
     externs: BTreeSet<String>,
     /// `[[bin]]` entries: the declared name, and its `path` if it has one.
     bins: Vec<(String, Option<String>)>,
+    /// `[[test]]` entries: the declared name, and its `path` if it has one.
+    /// A test target is compiled by cargo and belongs to the crate, so it is
+    /// scanned; `[[example]]` and `[[bench]]` are compiled too and are not.
+    tests: Vec<(String, Option<String>)>,
     /// `[[example]]` and `[[bench]]` names. Compiled by cargo, not part of
     /// the architecture, and not scanned — which is a thing to say out loud.
     non_architecture: Vec<String>,
@@ -1547,6 +1650,15 @@ fn read_manifest(p: &Path) -> Result<Manifest> {
             bins.push((declared.to_string(), str_of(b, "path")));
         }
     }
+    let mut tests = Vec::new();
+    if let Some(list) = v.get("test").and_then(|b| b.as_array()) {
+        for t in list {
+            let Some(declared) = t.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            tests.push((declared.to_string(), str_of(t, "path")));
+        }
+    }
     let mut non_architecture = Vec::new();
     for key in ["example", "bench"] {
         if let Some(list) = v.get(key).and_then(|b| b.as_array()) {
@@ -1573,6 +1685,7 @@ fn read_manifest(p: &Path) -> Result<Manifest> {
         project: name,
         externs,
         bins,
+        tests,
         non_architecture,
         members,
     })

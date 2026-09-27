@@ -92,17 +92,22 @@ when `is_test` is set. That is a fact about the source, not a claim about
 coverage, and it is the only premise the rules below are allowed to use.
 
 Scanning test targets has a cost that must be paid honestly: test code is test
-code. Four rules subtract `is_test` today and the classifier hands test symbols
-the pattern `test`, so a `test`-patterned symbol matches none of the layer names
-the layering rules iterate (`use-case`, `service`, `store`, `command-handler` at
-`src/rules.rs:772-790`, among others) and is quietly ignored. That is the
-mechanism, and it is a mechanism rather than a guarantee: 22 rules, 4 of which
-subtract `is_test`, is not a proof about the other 18. So the claim is tested
-rather than argued — a fixture with a test target that imports across every layer
-must produce exactly the findings it produced without the test target. If some
-rule turns out to see test code as domain code, that is a finding about that rule
-and it gets fixed here, not waved through because the pattern name looked
-sufficient.
+code. The classifier already handles it — a symbol with `is_test` set is given
+the pattern `test` and the layer `test` (`src/classify.rs:418-426`), and `test`
+is a real layer in the profile it comes from: *"Test — fakes and specs"*,
+`src/profiles/patterns-rust.toml:30-32`. So the invariant to hold is not "test
+code is invisible" but the sharper one: **a symbol in a test target is in the
+`test` layer and in no other**. A test classified as `domain` is a layering bug
+that every rule downstream would act on.
+
+Four rules subtract `is_test` as well (`src/rules.rs:628,824,887,1268`), and
+cohesion and five views read it. None of that is a proof about the other 18 rules
+out of 22, so the claim is tested rather than argued, and the test is
+mutation-checked: the fixture's `tests/acceptance.rs` defines `fn helper()`,
+which the fixture's own patterns *would* classify as `domain`, so deleting the
+classifier's test-target branch makes the guard fail rather than quietly
+reclassifying test code. The verdict map is also compared with and without
+`tests/` and must be identical.
 
 ### Exercised, not tested
 
@@ -223,9 +228,10 @@ that pins enforcement status, extended so a new rule cannot arrive without a tie
   `is_test` set on their symbols and the target named.
 - A declared `[[test]]` with a `path` outside `tests/` is scanned; a declared
   `[[test]]` whose path does not exist is a `MissingTarget` diagnostic naming it.
-- Test targets are excluded from the layering rules' premises by the mechanism
-  described above, and a fixture that calls across every layer from a test target
-  produces no new findings.
+- Every symbol in a test target is classified to the `test` layer and to no other
+  layer, and the guard is mutation-checked: disabling the classifier's test-target
+  branch fails it.
+- The verdict map is identical with and without the test target present.
 - `untested-port` reports the count of scanned test targets in its reason, and its
   reason never contains the words "untested" or "coverage" as a claim.
 - With no test target scanned, `untested-port` is `Unevaluable` with a reason
