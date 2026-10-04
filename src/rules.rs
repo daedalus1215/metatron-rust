@@ -1418,26 +1418,18 @@ fn churn_concentration(x: &Ctx, churn: &Churn) -> Finding {
         ));
     }
 
-    let total: usize = churn.files.values().map(|c| c.commits).sum();
-    let hot = churn.top_decile();
-    let depended_on: BTreeSet<String> = {
-        // The same relative test on the other axis, computed from the same
-        // measurement: a file that changes constantly and that nothing imports
-        // is cheap to get wrong, and the view says so in as many words.
-        let max = churn.files.values().map(|c| c.deps).max().unwrap_or(0);
-        churn
-            .files
-            .iter()
-            .filter(|(_, c)| max > 0 && c.deps * 10 >= max)
-            .map(|(file, _)| file.clone())
-            .collect()
-    };
+    // Both axes, both defined in `churn.rs` so a rule and a test cannot disagree
+    // about what a hotspot is: above the even share of the churn, and in the top
+    // decile of how many files lean on it.
+    let hot = churn.churn_hotspots();
+    let depended_on = churn.depended_upon();
 
     let out: Vec<Instance> = churn
         .files
         .iter()
         .filter(|(file, _)| hot.contains(*file) && depended_on.contains(*file))
         .map(|(file, c)| {
+            let total: usize = churn.files.values().map(|c| c.commits).sum();
             let share = if total == 0 {
                 0.0
             } else {

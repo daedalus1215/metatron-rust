@@ -226,6 +226,66 @@ fn too_little_history_is_not_enough_to_rank_anything() {
 }
 
 #[test]
+fn a_file_below_its_even_share_is_not_a_hotspot_however_much_depends_on_it() {
+    // The shape a real crate produces: 43 committed files, one of them touched
+    // 31 times, and `domain/mod.rs` touched once — while being the most-imported
+    // file in the crate, six files leaning on it. Six of 43 is genuinely the top
+    // decile of dependents, and one of 56 touches is not a concentration of
+    // anything, so the rule reported it beside the real hotspot and the list
+    // became noise. Both halves have to hold.
+    let mut files: Vec<(String, metatron::churn::FileChurn)> = (0..42)
+        .map(|i| {
+            (
+                format!("f{i}.rs"),
+                metatron::churn::FileChurn {
+                    commits: 1,
+                    deps: 0,
+                    score: score(1, 0),
+                    ..Default::default()
+                },
+            )
+        })
+        .collect();
+    files.push((
+        "cli.rs".to_string(),
+        metatron::churn::FileChurn {
+            commits: 31,
+            deps: 1,
+            score: score(31, 1),
+            ..Default::default()
+        },
+    ));
+    files.push((
+        "domain/mod.rs".to_string(),
+        metatron::churn::FileChurn {
+            commits: 1,
+            deps: 6,
+            score: score(1, 6),
+            ..Default::default()
+        },
+    ));
+    let c = Churn {
+        available: true,
+        files: files.into_iter().collect(),
+        ..Default::default()
+    };
+
+    let depended = c.depended_upon();
+    assert!(
+        depended.contains("domain/mod.rs"),
+        "six of forty-three files leaning on it is the top decile of dependents: \
+         {depended:?}"
+    );
+
+    let hot = c.churn_hotspots();
+    assert!(hot.contains("cli.rs"), "31 of 73 touches is concentration");
+    assert!(
+        !hot.contains("domain/mod.rs"),
+        "one touch out of 73, however many files import it: {hot:?}"
+    );
+}
+
+#[test]
 fn a_decile_is_relative_so_a_uniform_crate_has_no_hotspots() {
     let mut c = Churn {
         available: true,

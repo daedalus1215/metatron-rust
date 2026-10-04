@@ -192,6 +192,17 @@ Two premises before any churn rule fires:
    *and* in the top decile of dependents is the hotspot; the same file in a crate
    where everything churns equally is not. Absolute thresholds would encode this
    project's idea of a busy file, which is not a fact about the scanned crate.
+3. **Above the even share, which is relative too.** "Top decile" alone is satisfied
+   by any crate at all: 43 files have a top decile, and in a crate that changes
+   uniformly so does every one of them. So the churn axis has a second condition,
+   also relative and also answerable by the reader: the file must hold **more than
+   its even share** — `1 / files` of the window's churn. The most-imported file in
+   a crate touched once is not concentrating anything, however many files lean on
+   it, and printing it next to a file touched thirty-one times makes the list
+   unreadable rather than useful. Both axes are defined in `churn.rs` as
+   `churn_hotspots()` and `depended_upon()`, on commits rather than on the hotspot
+   score, because a score that already contains the dependent count cannot serve
+   as an axis that is supposed to be independent of it.
 
 `churn-concentration` therefore reports:
 
@@ -212,7 +223,7 @@ policy question this repository has not answered.
 | rule | premise | decidable | tier | why |
 |------|---------|-----------|------|-----|
 | `untested-port` | a test symbol calls or implements the port | yes | advisory | the premise is in the model, the judgment is not |
-| `churn-concentration` | the crate has a history, and the file ranks in the top decile of churn and dependents | yes | advisory | correlates with being important |
+| `churn-concentration` | the crate has a history, and the file ranks in the top decile of churn and dependents and holds more than its even share | yes | advisory | correlates with being important |
 
 Both are decidable, so neither may report `Unevaluable` for a reason that is not
 stated in its reason string. Both are advisory, so neither can fail a build, which
@@ -377,6 +388,15 @@ string was already handing the parser and discarding. Counted, compared against
 `git rev-list --count` in
 `the_window_counts_commits_not_the_lines_they_occupy`.
 
+The rule's churn axis was the hotspot score, which contains the dependent count,
+so the axis meant to be independent of it was not, and it had no floor: the
+most-imported file in a scratch crate was reported beside a file touched thirty-one
+times, holding one commit of fifty-six. `churn_hotspots()` and `depended_upon()` in
+`churn.rs` now carry the two axes, on commits, with the even-share floor on the
+first, and
+`a_file_below_its_even_share_is_not_a_hotspot_however_much_depends_on_it` is that
+crane's footprint.
+
 Nothing else about the measurement was wrong, which is the uncomfortable part:
 the per-file counts, the scores, the dates and the dependents were all right,
 and the one wrong number was the one a reader would quote back at you.
@@ -384,7 +404,7 @@ and the one wrong number was the one a reader would quote back at you.
 ### Measured
 
 - 24 rules, 16 of which gate. `advisory 8`, up from 6.
-- 139 tests across 9 binaries, 0 ignored. `cargo clippy --all-targets` clean.
+- 140 tests across 9 binaries, 0 ignored. `cargo clippy --all-targets` clean.
 - On `../arioch`: `churn-concentration` names 4 files, `app.rs` holding 32% of the
   crate's churn with 1 of its 8 committed files leaning on it, over 40 commits
   since 2026-08-26. `untested-port` is `Unevaluable` — "no port trait exists" —

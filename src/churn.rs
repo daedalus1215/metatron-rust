@@ -107,6 +107,49 @@ impl Churn {
         self.window.commits
     }
 
+    /// Files that hold more than an even share of the window's churn and sit in
+    /// the top decile of commits — the first half of
+    /// `churn-concentration`.
+    ///
+    /// The even-share half is what stops this from reporting every file in a
+    /// crate that changes uniformly. A repository of 56 commits spread over 43
+    /// files has a top decile by definition, and one of those files held a single
+    /// commit: a file with one commit in the window is not concentrating
+    /// anything, and printing it beside a file with thirty-one is how a list of
+    /// hotspots turns into noise. The even share is `1 / files`, so the question
+    /// is answerable by anyone reading the number.
+    ///
+    /// Commits, not `score`: the score already contains the dependent count, and
+    /// an axis that quietly includes the other one cannot be called independent.
+    pub fn churn_hotspots(&self) -> BTreeSet<String> {
+        let max = self.files.values().map(|c| c.commits).max().unwrap_or(0);
+        if max == 0 {
+            return BTreeSet::new();
+        }
+        let total: usize = self.files.values().map(|c| c.commits).sum();
+        let n = self.files.len();
+        self.files
+            .iter()
+            .filter(|(_, c)| c.commits * 10 >= max && c.commits * n > total)
+            .map(|(f, _)| f.clone())
+            .collect()
+    }
+
+    /// Files in the top decile of how many other files import them — the second
+    /// half of `churn-concentration`. Empty when nothing is imported at all,
+    /// which is a fact about the crate rather than a missing measurement.
+    pub fn depended_upon(&self) -> BTreeSet<String> {
+        let max = self.files.values().map(|c| c.deps).max().unwrap_or(0);
+        if max == 0 {
+            return BTreeSet::new();
+        }
+        self.files
+            .iter()
+            .filter(|(_, c)| c.deps * 10 >= max)
+            .map(|(f, _)| f.clone())
+            .collect()
+    }
+
     /// Files in the top decile by score, ties included so a small crate with one
     /// busy file does not produce an empty decile.
     pub fn top_decile(&self) -> BTreeSet<String> {
