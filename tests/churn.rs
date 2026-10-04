@@ -116,6 +116,44 @@ fn churn_outside_a_git_work_tree_says_so() {
 }
 
 #[test]
+fn the_window_counts_commits_not_the_lines_they_occupy() {
+    // A commit that rewrites ten files is one commit. Adding up the per-file
+    // counts calls it ten, and the window then prints a number that reads like
+    // history depth and is not: a scratch repository with 26 commits and 43 file
+    // touches reported "over 43 commit(s)", and 43 clears the twenty-commit
+    // floor that five commits should not. Found by running the tool on a
+    // repository, not by reading the code that sums.
+    //
+    // Measured here against this repository and compared with git's own count
+    // over the same pathspec, which is the only version of the number nobody can
+    // argue with.
+    let dir = Path::new(".");
+    let distinct = std::process::Command::new("git")
+        .args(["rev-list", "--count", "HEAD", "--", "src"])
+        .current_dir(dir)
+        .output()
+        .expect("git rev-list");
+    let distinct: usize = String::from_utf8_lossy(&distinct.stdout)
+        .trim()
+        .parse()
+        .expect("a count");
+
+    let (c, _) = measure(dir);
+    assert!(c.available, "this repository has history: {}", c.reason);
+    let touches: usize = c.files.values().map(|f| f.commits).sum();
+    assert_eq!(
+        c.window.commits, distinct,
+        "the window must count commits, not file touches ({touches} touches \
+         across {distinct} commits)"
+    );
+    assert!(
+        touches > distinct,
+        "this repository must have commits that touch more than one file, or \
+         the test cannot fail"
+    );
+}
+
+#[test]
 fn an_empty_history_is_not_a_crate_with_no_hot_files() {
     // A git repository with no commits at all: the log succeeds and says
     // nothing, which is a different absence from git being unavailable.

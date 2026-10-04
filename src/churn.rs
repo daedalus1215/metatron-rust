@@ -55,6 +55,11 @@ pub struct Window {
     /// there is no `--since` — so this is where the history starts, not a bound
     /// the caller chose.
     pub since: String,
+    /// Distinct commits touching the root. Not the sum of the per-file counts:
+    /// one commit that rewrites ten files is one commit, and adding the ten up
+    /// produces a number that reads like history depth and is not. A repository
+    /// of 26 commits can have 43 file touches, and printing the second one under
+    /// the word "commits" is a number nobody can check.
     pub commits: usize,
     pub files: usize,
 }
@@ -149,21 +154,19 @@ impl Churn {
     /// scoped the same way the model is: a workspace member's churn is its own,
     /// not its workspace's.
     pub fn measure(dir: &Path, root: &str, model: &Model) -> Churn {
+        let (files, commits) = match Self::log(dir, root) {
+            Ok(v) => v,
+            Err(why) => return Churn::unavailable(why),
+        };
+        if files.is_empty() {
+            return Churn::unavailable(format!("no commit in this repository touches `{root}`"));
+        }
         let mut ch = Churn {
-            files: match Self::log(dir, root) {
-                Ok(files) if !files.is_empty() => files,
-                Ok(_) => {
-                    return Churn::unavailable(format!(
-                        "no commit in this repository touches `{root}`"
-                    ))
-                }
-                Err(why) => return Churn::unavailable(why),
-            },
+            files,
             ..Default::default()
         };
 
         ch.add_dependents(model);
-        let commits: usize = ch.files.values().map(|c| c.commits).sum();
         let since = ch
             .files
             .values()
@@ -184,7 +187,13 @@ impl Churn {
     /// not an error — a crate does not have to be in git to be analysed — but it
     /// is a reason, and which reason is decided here rather than by an empty map
     /// downstream.
-    fn log(dir: &Path, root: &str) -> Result<BTreeMap<String, FileChurn>, String> {
+    ///
+    /// Also returns the number of commits in the log, counted once each. The
+    /// `--numstat` body lists a line per file per commit, so a sum of those lines
+    /// counts a wide commit several times; the hashes are right there in the
+    /// format string and this is the only place that knows the difference.
+    #[allow(clippy::type_complexity)]
+    fn log(dir: &Path, root: &str) -> Result<(BTreeMap<String, FileChurn>, usize), String> {
         let out = Command::new("git")
             .args([
                 "log",
@@ -213,11 +222,14 @@ impl Churn {
         let mut files: BTreeMap<String, FileChurn> = BTreeMap::new();
         let mut authors: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let (mut author, mut date) = (String::new(), String::new());
+        let mut commits: BTreeSet<String> = BTreeSet::new();
 
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix('\u{1}') {
                 let mut p = rest.split('\u{1}');
-                let _hash = p.next();
+                if let Some(hash) = p.next() {
+                    commits.insert(hash.to_string());
+                }
                 author = p.next().unwrap_or("").to_string();
                 date = p.next().unwrap_or("").to_string();
                 continue;
@@ -250,7 +262,7 @@ impl Churn {
                 e.author_count = set.len();
             }
         }
-        Ok(files)
+        Ok((files, commits.len()))
     }
 
     /// Count, per file, how many other files import it.

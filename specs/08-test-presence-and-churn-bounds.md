@@ -139,10 +139,13 @@ The tier is `advisory`, and this is a decision rather than a dodge. The premise
 is decidable, but the *judgment* is weak — a test can exercise a port through its
 caller, through a trait object, or by hand — and a gate that fires on every
 symbol of a crate with no scanned tests is a gate that gets disabled. Making it
-advisory means the number is available in every report, in the baseline, and in
-`check --all`, without anyone having to believe it. Promoting it to a gate is a
-one-line change to the tier table once a baseline exists, and the spec says so
-rather than pretending the question is closed.
+advisory means the number is in every report and in `check --all`, without anyone
+having to believe it. It is *not* in the baseline: `baseline::current` excludes
+non-gating rules on purpose, so an advisory finding can never be accepted and
+never has to be defended. It is a standing observation, not a ratcheted one, which
+is why it cannot be a gate yet and why promoting it later means a baseline that
+was never built. That is the honest cost of this decision, and the reason the
+rule ships warning rather than trusted.
 
 ### Churn moves out of the view
 
@@ -363,10 +366,25 @@ fails on any directory that is not a git repository**, with
 for the flag now run against a temporary repository with 25 real commits under
 `src/` rather than against a fixture.
 
+### One false number, found by running it
+
+`Window.commits` was the sum of the per-file commit counts, which is file
+touches. A scratch repository with 26 commits and 43 touches printed `over 43
+commit(s)` — a number high enough to clear the twenty-commit floor that five
+commits should not, printed under the word *commits*. `git log --numstat` lists a
+line per file per commit, so the commits were countable from the hashes the format
+string was already handing the parser and discarding. Counted, compared against
+`git rev-list --count` in
+`the_window_counts_commits_not_the_lines_they_occupy`.
+
+Nothing else about the measurement was wrong, which is the uncomfortable part:
+the per-file counts, the scores, the dates and the dependents were all right,
+and the one wrong number was the one a reader would quote back at you.
+
 ### Measured
 
 - 24 rules, 16 of which gate. `advisory 8`, up from 6.
-- 138 tests across 9 binaries, 0 ignored. `cargo clippy --all-targets` clean.
+- 139 tests across 9 binaries, 0 ignored. `cargo clippy --all-targets` clean.
 - On `../arioch`: `churn-concentration` names 4 files, `app.rs` holding 32% of the
   crate's churn with 1 of its 8 committed files leaning on it, over 40 commits
   since 2026-08-26. `untested-port` is `Unevaluable` — "no port trait exists" —

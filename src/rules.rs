@@ -1299,13 +1299,14 @@ fn renders_off_store(x: &Ctx) -> Finding {
 ///
 /// Advisory, deliberately. The premise is knowable and the judgment is not, and
 /// a gate that fires on every port of a crate whose suite this tool did not scan
-/// is a gate that gets switched off within a week. The number is in every
-/// report, the baseline and `check --all` either way; promoting it to a gate is
-/// a one-line edit here and in spec 08 once a baseline exists.
+/// is a gate that gets switched off within a week. The number is in every report
+/// and in `check --all`. It is deliberately *not* in the baseline, which skips
+/// non-gating rules: an advisory finding can never be accepted, so promoting it
+/// to a gate later needs a baseline nobody has been building.
 fn untested_port(x: &Ctx) -> Finding {
     let f = Finding::new(
         "untested-port",
-        "a port is called by something in the test suite",
+        "a port is called or implemented by something in the test suite",
         "specs/08-test-presence-and-churn-bounds.md",
         Tier::Convention,
         Kind::Decidable,
