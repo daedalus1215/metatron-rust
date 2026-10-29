@@ -18,6 +18,7 @@ mod hotspots;
 mod layers;
 mod narrate;
 mod traffic;
+pub mod workbench;
 
 pub use narrate::Narration;
 
@@ -123,8 +124,13 @@ pub struct Stats {
 /// on its own: a symbol the classifier missed is the one most worth
 /// seeing.
 pub fn tiers(s: &Scorecard) -> Vec<Tier> {
-    let mut v: Vec<Tier> = s
-        .config
+    tiers_of(&s.config)
+}
+
+/// [`tiers`], from the config alone — for the workbench, which re-scans on
+/// every save and has no reason to read git history or run the rules.
+pub fn tiers_of(config: &crate::classify::Config) -> Vec<Tier> {
+    let mut v: Vec<Tier> = config
         .layers
         .iter()
         .enumerate()
@@ -244,7 +250,7 @@ pub fn render(s: &Scorecard, name: &str) -> Result<String> {
         .replace("__DATA__", &json)
         .replace("{{project}}", &pretty)
         .replace("{{projectId}}", &s.model.project)
-        .replace("{{date}}", &crate::baseline::today())
+        .replace("{{date}}", &crate::baseline::today_from(s.now_secs))
         .replace("{{root}}", &s.config.root)
         .replace("{{files}}", &s.model.stats.files.to_string())
         .replace("{{modules}}", &s.model.stats.modules.to_string())
@@ -354,7 +360,7 @@ padding:1.1rem 1.3rem;margin:0 0 2rem}}
 {omitted}
 </main>"#,
         proj = s.model.project,
-        date = crate::baseline::today(),
+        date = crate::baseline::today_from(s.now_secs),
         loc = s.model.stats.loc,
         modules = s.model.stats.modules,
         symbols = s.model.stats.symbols,
