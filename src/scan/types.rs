@@ -139,6 +139,44 @@ pub fn generic_bounds(g: &syn::Generics) -> Vec<String> {
     out
 }
 
+/// Each named type parameter with its bounds, angle brackets and `where`
+/// clause merged. A `where` predicate on anything but a bare generic name
+/// (`Vec<T>: Debug`) constrains no single parameter and is left out.
+pub fn generic_params(g: &syn::Generics) -> Vec<crate::model::Generic> {
+    let mut out: Vec<crate::model::Generic> = Vec::new();
+    for p in &g.params {
+        if let syn::GenericParam::Type(tp) = p {
+            let mut bounds = Vec::new();
+            tp.bounds.iter().for_each(|b| walk_bound(b, &mut bounds));
+            out.push(crate::model::Generic {
+                name: tp.ident.to_string(),
+                bounds,
+            });
+        }
+    }
+    if let Some(w) = &g.where_clause {
+        for pred in &w.predicates {
+            let syn::WherePredicate::Type(pt) = pred else {
+                continue;
+            };
+            let Type::Path(tp) = &pt.bounded_ty else {
+                continue;
+            };
+            let Some(name) = tp.path.get_ident().map(|i| i.to_string()) else {
+                continue;
+            };
+            if let Some(g) = out.iter_mut().find(|g| g.name == name) {
+                pt.bounds.iter().for_each(|b| walk_bound(b, &mut g.bounds));
+            }
+        }
+    }
+    for g in &mut out {
+        g.bounds.sort();
+        g.bounds.dedup();
+    }
+    out
+}
+
 pub fn type_to_string(ty: &Type) -> String {
     use quote::ToTokens;
     let s = ty.to_token_stream().to_string();
