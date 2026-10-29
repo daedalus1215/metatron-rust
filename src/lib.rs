@@ -27,11 +27,15 @@ pub mod baseline;
 pub mod churn;
 pub mod classify;
 pub mod cohesion;
+pub mod clock;
 pub mod model;
+pub mod ports;
 pub mod rules;
 pub mod scan;
 pub mod scorecard;
+pub mod serve;
 pub mod views;
+pub mod wiring;
 
 pub use model::Model;
 pub use scorecard::Scorecard;
@@ -49,8 +53,12 @@ pub fn scan(dir: impl AsRef<Path>) -> Result<Model> {
 /// Panics rather than returning `Result`, because the calling context is
 /// a `#[test]` and a failure to scan should read as a test failure with a
 /// message, not as an unwrapped error.
+///
+/// This facade binds [`clock::SystemClock`] itself: its callers are
+/// `#[test]`s and do not have a composition root. The binary binds the
+/// same clock in `main.rs`, which is the root proper.
 pub fn check(dir: impl AsRef<Path>) -> Scorecard {
-    match scorecard::build(dir.as_ref()) {
+    match scorecard::build(dir.as_ref(), &clock::SystemClock) {
         Ok(s) => s,
         Err(e) => panic!(
             "metatron could not analyse {}: {e:#}",
