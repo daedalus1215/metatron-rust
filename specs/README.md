@@ -9,8 +9,8 @@ tags: [index, roadmap, rust, ddd]
 
 # Specs
 
-Eight specs, all written and implemented: 01-06 on 2026-08-29, 07 and 08 on
-2026-09-27.
+Eleven specs: 01-06 on 2026-08-29, 07 and 08 on 2026-09-27, 09 and 10 drafted on
+2026-10-18, 11 on 2026-10-28.
 A Rust rewrite of [`metatron-nestjs`](../../metatron-nestjs) that checks Rust
 codebases against `patterns-rust` — the layout convention the rules are written
 against, named throughout but not a checkout beside this one. Numbered by
@@ -26,6 +26,9 @@ dependency, not by importance.
 | 06 | [Retargeting the views](06-views.md) | presentation | 03, 04 |
 | 07 | [Trustworthiness and self-audit](07-trustworthiness-and-self-audit.md) | self-audit | 01-06 |
 | 08 | [Test presence and churn bounds](08-test-presence-and-churn-bounds.md) | new analysis | 01, 04 |
+| 09 | [Logical coupling (co-change analysis)](09-logical-coupling.md) | new analysis, drafted | 01, 08 |
+| 10 | [Blast radius (`metatron diff`)](10-blast-radius.md) | new analysis, drafted | 01, 05, 09 |
+| 11 | [The workbench (`metatron serve`)](11-workbench.md) | presentation | 01, 03, 06 |
 
 ## Why full Rust
 
