@@ -8,15 +8,26 @@
 //! a payload shaped as an object where the template indexes an array,
 //! which throws nothing, logs nothing, and draws nothing.
 
+use metatron::clock::Clock;
 use metatron::views;
 use serde_json::Value;
 use std::path::PathBuf;
+
+/// Views are pure renderers of `Scorecard` state; the suite fixes the
+/// clock so a rendered date is part of the snapshot, not of today.
+struct FixedClock;
+
+impl Clock for FixedClock {
+    fn now_secs(&self) -> u64 {
+        1_761_234_567
+    }
+}
 
 fn card(name: &str) -> metatron::Scorecard {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(name);
-    metatron::scorecard::build(&p).expect("scorecard")
+    metatron::scorecard::build(&p, &FixedClock).expect("scorecard")
 }
 
 fn sibling(name: &str) -> Option<metatron::Scorecard> {
@@ -25,7 +36,7 @@ fn sibling(name: &str) -> Option<metatron::Scorecard> {
         .join(name);
     p.join("Cargo.toml")
         .exists()
-        .then(|| metatron::scorecard::build(&p).expect("scorecard"))
+        .then(|| metatron::scorecard::build(&p, &FixedClock).expect("scorecard"))
 }
 
 /// The JSON out of the one `__DATA__` slot in a rendered view.
@@ -300,7 +311,13 @@ fn the_narration_describes_this_crate_and_not_another() {
         n.get("unevaluable").is_some(),
         "17 dark rules and nothing said"
     );
-    assert!(n.get("coverage").unwrap().contains("1.2%"));
+    // The narration states the model's own coverage, whatever it is — a
+    // hardcoded number here would read as a fact about arioch when it is
+    // only a fact about an old arioch.
+    assert!(n
+        .get("coverage")
+        .unwrap()
+        .contains(&format!("({:.1}%)", a.coverage())));
 }
 
 // ------------------------------------------------- the payload and the page
