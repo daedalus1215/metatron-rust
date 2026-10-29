@@ -37,7 +37,13 @@ impl Sandbox {
     }
     fn accept(&self) -> Baseline {
         let s = metatron::check(self.path());
-        let (next, _) = baseline::update(&s.report, &s.baseline, &s.model.project, s.coverage());
+        let (next, _) = baseline::update(
+            &s.report,
+            &s.baseline,
+            &s.model.project,
+            s.coverage(),
+            s.now_secs,
+        );
         next.save(self.path()).unwrap();
         next
     }
@@ -260,7 +266,13 @@ fn hand_written_notes_survive_an_update_and_dropped_ones_are_counted() {
     );
 
     let sc = metatron::check(s.path());
-    let (next, out) = baseline::update(&sc.report, &sc.baseline, &sc.model.project, sc.coverage());
+    let (next, out) = baseline::update(
+        &sc.report,
+        &sc.baseline,
+        &sc.model.project,
+        sc.coverage(),
+        sc.now_secs,
+    );
 
     assert_eq!(
         out.notes_preserved, 1,
@@ -400,9 +412,14 @@ fn cohesion_can_be_locked_in_for_one_named_type() {
 // ------------------------------------------------------------- the target
 
 #[test]
-fn arioch_scores_as_a_crate_with_no_architecture_yet() {
-    // A run that reports a healthy architecture for arioch is a failed
-    // acceptance test.
+fn arioch_scores_as_the_project_it_declares() {
+    // A run that reports a healthy architecture for arioch is still a
+    // failed acceptance test — arioch defines no port, so no port-premise
+    // rule may uphold, and the clock is still called directly. What
+    // changed since this test was written is arioch's own metatron.toml:
+    // it now maps its flat files to layers honestly, so most symbols are
+    // classified under its declaration while the glossary-gap rules still
+    // say what they cannot see.
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../arioch");
     if !p.join("Cargo.toml").exists() {
         return;
@@ -411,17 +428,26 @@ fn arioch_scores_as_a_crate_with_no_architecture_yet() {
     let c = s.counts();
     let e = s.enforcement();
 
-    assert!(s.coverage() < 5.0, "coverage {:.1}%", s.coverage());
+    assert_eq!(s.classified.coverage.ports, 0, "arioch defines no port");
+    assert!(
+        (80.0..100.0).contains(&s.coverage()),
+        "coverage {:.1}% — the self-declared layout should place most symbols",
+        s.coverage()
+    );
     assert_eq!(
         e.compiler, 0,
         "nothing is compiler-enforced in a single crate"
     );
-    assert!(c.unevaluable > 10, "unevaluable {}", c.unevaluable);
     assert!(c.upheld == 0, "arioch upholds no port");
     assert!(c.violated > 0);
+    assert!(c.unevaluable > 10, "unevaluable {}", c.unevaluable);
 
-    // And the shape of the scorecard itself: no single percentage.
-    assert!(!s.had_baseline, "arioch has no committed baseline");
+    // And the shape of the scorecard itself: the committed baseline is a
+    // real ratchet — one accepted violation sits behind a fingerprint,
+    // whatever it is today, and nothing in it declines.
+    assert!(s.had_baseline, "arioch commits its baseline");
+    assert_eq!(s.diff.known.len(), 1, "known");
+    assert!(!s.diff.new.is_empty(), "unaccepted findings are new");
 
     let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.assert_no_unevaluable()))
         .unwrap_err();
