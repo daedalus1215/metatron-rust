@@ -16,6 +16,7 @@ use crate::churn::Churn;
 use crate::classify::{self, Classified, Config};
 use crate::cohesion::{self, CohesionReport, Verdict};
 use crate::model::Model;
+use crate::ports::Clock;
 use crate::rules::{self, Finding, Kind, Report, Status, Tier};
 use anyhow::Result;
 use serde::Serialize;
@@ -59,9 +60,14 @@ pub struct Scorecard {
     /// number in a report and a churn number on a chart cannot be two
     /// measurements of the same repository.
     pub churn: Churn,
+    /// Epoch seconds the run happened at, read once through the
+    /// [`crate::clock::Clock`] port and shared the same way: every view
+    /// and every stamp in the baseline derives from this one number, and
+    /// no view names the clock itself.
+    pub now_secs: u64,
 }
 
-pub fn build(dir: &Path) -> Result<Scorecard> {
+pub fn build(dir: &Path, clock: &impl Clock) -> Result<Scorecard> {
     let model = crate::scan(dir)?;
     let config = Config::load(dir)?;
     let classified = classify::classify(&model, &config);
@@ -82,6 +88,7 @@ pub fn build(dir: &Path) -> Result<Scorecard> {
         diff,
         had_baseline,
         churn,
+        now_secs: clock.now_secs(),
     })
 }
 
