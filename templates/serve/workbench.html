@@ -1,0 +1,1281 @@
+<!doctype html>
+<!-- metatron workbench (spec 10). Served by `metatron serve`; not a built lens. -->
+<!-- Vendored from metatron-nestjs templates/serve/workbench.html. Each edit is
+     marked `metatron-rust change` and listed in templates/NOTICE.md (spec 11). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>metatron workbench</title>
+<style>
+:root {
+  --paper:#F1F4F8; --surface:#FFFFFF; --surface2:#E7ECF3; --sunk:#DFE5EE;
+  --ink:#151E29; --ink2:#485A6F; --ink3:#7A8B9F;
+  --rule:#D2DAE4; --rule2:#B9C4D2;
+  --blue:#2B5CA8; --amber:#A85B06; --rose:#A31C39; --green:#1B6448; --violet:#54479A; --teal:#136A80;
+  --l0:#2B5CA8; --l1:#7A8B9F; --l2:#54479A; --l3:#A85B06; --l4:#1B6448;
+  --l5:#7E6E4E; --l6:#136A80; --l7:#84406F; --l8:#8B98A8; --l9:#8B98A8; --l10:#8B98A8;
+  --hot:#D9480F; --code:#F5F7FA; --hl:#FFF3C4;
+  --shadow:0 1px 2px rgba(21,30,41,.06), 0 8px 24px rgba(21,30,41,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#0E141B; --surface:#151D26; --surface2:#1C2631; --sunk:#111922;
+    --ink:#E3EAF2; --ink2:#9EAFC1; --ink3:#6B7C91;
+    --rule:#28343F; --rule2:#36454F;
+    --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6; --teal:#4FB6CE;
+    --l0:#79A4E6; --l1:#8496A9; --l2:#A093E6; --l3:#E0A04A; --l4:#4FC195;
+    --l5:#C0AC7F; --l6:#4FB6CE; --l7:#D28BBC; --l8:#7D8C9C; --l9:#7D8C9C; --l10:#7D8C9C;
+    --hot:#FF8A4C; --code:#101821; --hl:#3A3212;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#0E141B; --surface:#151D26; --surface2:#1C2631; --sunk:#111922;
+  --ink:#E3EAF2; --ink2:#9EAFC1; --ink3:#6B7C91;
+  --rule:#28343F; --rule2:#36454F;
+  --blue:#79A4E6; --amber:#E0A04A; --rose:#EE7189; --green:#4FC195; --violet:#A093E6; --teal:#4FB6CE;
+  --l0:#79A4E6; --l1:#8496A9; --l2:#A093E6; --l3:#E0A04A; --l4:#4FC195;
+  --l5:#C0AC7F; --l6:#4FB6CE; --l7:#D28BBC; --l8:#7D8C9C; --l9:#7D8C9C; --l10:#7D8C9C;
+  --hot:#FF8A4C; --code:#101821; --hl:#3A3212;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  color-scheme: dark;
+}
+* { box-sizing:border-box; }
+/* metatron-rust change: `hidden` wins over a class that sets display. Without
+   it `.chg` and `.scrub` show while hidden — upstream too, where the empty
+   change-map bar sits under the status bar whenever no change is open. */
+[hidden] { display:none !important; }
+html, body { height:100%; }
+body { margin:0; background:var(--paper); color:var(--ink);
+  font:14px/1.45 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  display:flex; flex-direction:column; overflow:hidden; }
+.mono, code, pre { font-family:'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+button { font:inherit; color:inherit; }
+
+/* status bar */
+.bar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:8px 16px;
+  padding-top:calc(8px + env(safe-area-inset-top, 0px));
+  border-bottom:1px solid var(--rule); background:var(--surface); }
+.bar h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
+.bar .meta { color:var(--ink3); font-size:12px; }
+.bar .err { color:var(--rose); font-size:12px; }
+.bar .spacer { flex:1; }
+.seg { display:inline-flex; border:1px solid var(--rule2); border-radius:6px; overflow:hidden; }
+.seg button { border:0; background:transparent; padding:3px 9px; font-size:12px; cursor:pointer; }
+.seg button[aria-pressed="true"] { background:var(--ink); color:var(--paper); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--ink3); margin-right:5px; vertical-align:1px; }
+.dot.live { background:var(--green); }
+
+/* three columns */
+main { flex:1; display:grid; grid-template-columns:var(--lw, 260px) minmax(0,1fr) var(--rw, 420px); min-height:0; position:relative; }
+/* a sidebar's inner edge: drag to resize, double-click to reset */
+.gutter { position:absolute; top:0; bottom:0; width:9px; z-index:6; cursor:col-resize; touch-action:none; }
+.gutter::after { content:''; position:absolute; top:0; bottom:0; left:3px; width:3px; border-radius:2px; transition:background .12s; }
+.gutter:hover::after, .gutter.drag::after, .gutter:focus-visible::after { background:var(--blue); }
+.gutter:focus-visible { outline:none; }
+#gl { left:calc(var(--lw, 260px) - 5px); }
+#gr { right:calc(var(--rw, 420px) - 5px); }
+body.resizing { cursor:col-resize; user-select:none; }
+aside, section { min-height:0; }
+.col { border-right:1px solid var(--rule); display:flex; flex-direction:column; min-height:0; }
+
+/* bricks list */
+.find { padding:10px; border-bottom:1px solid var(--rule); display:grid; gap:8px; }
+.find input, .find select { width:100%; padding:6px 8px; border:1px solid var(--rule2); border-radius:6px;
+  background:var(--surface); color:var(--ink); font:inherit; font-size:13px; }
+.pats { display:flex; flex-wrap:wrap; gap:4px 10px; font-size:11.5px; color:var(--ink2); }
+.pats label { display:inline-flex; gap:4px; align-items:center; cursor:pointer; white-space:nowrap; }
+.list { overflow:auto; flex:1; padding:4px 0 24px; }
+.list h4 { margin:10px 12px 2px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink3); font-weight:600; }
+.list button { display:flex; justify-content:space-between; gap:8px; width:100%; text-align:left; border:0; background:none;
+  padding:3px 12px 3px 16px; cursor:pointer; font-size:13px; }
+.list button:hover { background:var(--surface2); }
+.list button[aria-current="true"] { background:var(--ink); color:var(--paper); }
+.list button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.list button small { color:var(--ink3); font-size:11px; white-space:nowrap; flex:none; }
+.list button[aria-current="true"] small { color:inherit; opacity:.7; }
+
+/* bench */
+.bench { position:relative; overflow:auto; background:
+  radial-gradient(circle, var(--rule) 1px, transparent 1.2px) 0 0/18px 18px, var(--paper); }
+.bench svg { display:block; margin:0 auto; }
+.bench .empty { padding:40px; color:var(--ink3); }
+.legend { position:sticky; left:0; bottom:0; display:flex; gap:14px; flex-wrap:wrap; padding:6px 12px;
+  font-size:11.5px; color:var(--ink2); background:color-mix(in srgb, var(--paper) 88%, transparent); border-top:1px solid var(--rule); }
+.legend svg { vertical-align:-2px; margin:0 3px 0 0; display:inline; }
+.note { position:sticky; left:0; top:0; padding:6px 12px; font-size:12px; color:var(--amber); }
+
+svg text { font-family:'Archivo', ui-sans-serif, system-ui, sans-serif; }
+.brick rect.body { fill:var(--surface); stroke-width:1.5; }
+.brick.port rect.body { fill:var(--paper); stroke-dasharray:5 3; }
+.brick.focus rect.body { stroke-width:3; filter:drop-shadow(0 4px 10px rgba(0,0,0,.15)); }
+.brick { cursor:pointer; }
+.brick.dim { opacity:.28; }
+.brick .name { font-size:12.5px; font-weight:600; fill:var(--ink); }
+.brick .sub { font-size:10px; fill:var(--ink3); }
+.stud { cursor:help; }
+.stud.lit, .sock.lit { stroke:var(--hot) !important; stroke-width:2.5 !important; }
+.edge { fill:none; stroke:var(--ink3); stroke-width:1.3; opacity:.65; }
+.edge.call { stroke-dasharray:4 4; opacity:.5; }
+.edge.bound { stroke-dasharray:1.5 3; }
+/* an id, so lit and dim win over the http and change colours below */
+#edges .edge.lit { stroke:var(--hot); opacity:1; stroke-width:2.6; }
+#edges .edge.dim { opacity:.12; }
+.rowlabel { font-size:10px; letter-spacing:.14em; text-transform:uppercase; fill:var(--ink3); }
+.rowline { stroke:var(--rule); stroke-dasharray:2 4; }
+.sideline { stroke:var(--teal); stroke-width:1.5; stroke-dasharray:8 4; }
+.sidelabel { font-size:10px; letter-spacing:.12em; text-transform:uppercase; fill:var(--teal); }
+.edge.http { stroke:var(--teal); stroke-width:1.8; opacity:.85; stroke-dasharray:none; }
+.hit { fill:none; stroke:transparent; stroke-width:12; pointer-events:stroke; cursor:help; }
+.legend [data-legend] { cursor:help; }
+.tip .sw { vertical-align:2px; }
+
+.tip { position:fixed; pointer-events:none; z-index:10; max-width:420px; padding:7px 9px; border-radius:6px;
+  background:var(--ink); color:var(--paper); font-size:12px; box-shadow:var(--shadow); }
+.tip code { font-size:11.5px; }
+.tip .k { opacity:.65; }
+
+/* inspector */
+.insp { display:flex; flex-direction:column; min-height:0; border-left:1px solid var(--rule); border-right:0; }
+.head { padding:12px 14px 8px; border-bottom:1px solid var(--rule); background:var(--surface); }
+.head h2 { margin:0; font-size:17px; letter-spacing:-.01em; word-break:break-word; }
+.head .path { font-size:11.5px; color:var(--ink3); overflow-wrap:anywhere; }
+.chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.chip { font-size:11px; padding:1px 7px; border-radius:10px; background:var(--surface2); color:var(--ink2); }
+.parts { overflow:auto; max-height:42%; border-bottom:1px solid var(--rule); padding:4px 0 8px; }
+.parts h3 { margin:10px 14px 4px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink3); }
+.row { display:block; width:100%; text-align:left; border:0; background:none; padding:3px 14px; cursor:pointer; font-size:12.5px; }
+.row:hover { background:var(--surface2); }
+.row code { font-size:12px; }
+.row .by { display:block; font-size:11.5px; color:var(--ink3); padding-left:12px; }
+.row .by a { color:var(--blue); cursor:pointer; text-decoration:none; }
+.row .by a:hover { text-decoration:underline; }
+.badge { display:inline-block; font-size:10px; padding:0 6px; border-radius:8px; margin-left:6px; vertical-align:1px;
+  border:1px solid var(--rule2); color:var(--ink2); }
+.badge.unresolved, .badge.unseen { border-color:var(--rose); color:var(--rose); }
+.badge.route { border-color:var(--blue); color:var(--blue); }
+.badge.framework { border-color:var(--violet); color:var(--violet); }
+.badge.port { border-color:var(--teal); color:var(--teal); }
+/* metatron-rust change: a type from another crate, and the trait a fn implements */
+.badge.external { border-color:var(--ink3); color:var(--ink2); }
+.badge.trait { border-color:var(--rule2); color:var(--ink3); }
+.none { padding:2px 14px; color:var(--ink3); font-size:12px; }
+.src { flex:1; overflow:auto; background:var(--code); font-size:12px; line-height:1.55; }
+.src table { border-collapse:collapse; min-width:100%; }
+.src td { padding:0 10px 0 0; white-space:pre; vertical-align:top; }
+.src td.n { color:var(--ink3); text-align:right; padding:0 10px; user-select:none; border-right:1px solid var(--rule); }
+.src tr.flash td { background:var(--hl); }
+.src .kw { color:var(--violet); } .src .str { color:var(--green); } .src .com { color:var(--ink3); font-style:italic; }
+.src .dec { color:var(--amber); } .src .num { color:var(--teal); } .src .ty { color:var(--blue); }
+.src .go { margin-left:10px; font-size:11px; border:1px solid var(--rule2); border-radius:8px; padding:0 6px;
+  background:var(--surface); cursor:pointer; color:var(--blue); font-family:inherit; }
+.src .go:hover { border-color:var(--blue); }
+
+/* change mode (spec 11) */
+.chg { display:inline-flex; gap:6px; align-items:center; }
+.chg input { width:min(260px, 40vw); padding:4px 8px; border:1px solid var(--rule2); border-radius:6px;
+  background:var(--surface); color:var(--ink); font:inherit; font-size:12.5px; }
+.chg button, .scrub button { border:1px solid var(--rule2); border-radius:6px; background:var(--surface); padding:3px 9px; font-size:12px; cursor:pointer; }
+.chg button:hover, .scrub button:hover { border-color:var(--ink2); }
+.scrub button[aria-pressed="true"] { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.scrub { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 16px; border-bottom:1px solid var(--rule);
+  background:var(--surface2); font-size:12.5px; }
+.scrub input[type=range] { flex:0 1 320px; min-width:120px; }
+.scrub .lbl { color:var(--ink2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60ch; }
+.scrub strong { font-weight:600; }
+.brick.added rect.body { fill:color-mix(in srgb, var(--green) 15%, var(--surface)); stroke:var(--green); }
+.brick.edited rect.body { fill:color-mix(in srgb, var(--amber) 15%, var(--surface)); stroke:var(--amber); }
+.brick.ctx { opacity:.7; }
+.edge.c-attachment { stroke:var(--green); opacity:1; stroke-width:2.6; }
+.edge.c-graft { stroke:var(--amber); opacity:1; stroke-width:2.6; }
+.edge.c-rewire { stroke:var(--violet); opacity:1; stroke-width:2.6; }
+.edge.c-territory { stroke:var(--green); opacity:.75; stroke-width:1.4; }
+.edge.c-kept { stroke:var(--blue); opacity:.9; stroke-width:1.8; }
+.edge.c-detached { stroke:var(--rose); opacity:.85; stroke-width:1.8; stroke-dasharray:6 4; }
+.brick.removed rect.body { fill:var(--paper); stroke:var(--rose); stroke-dasharray:6 3; }
+.brick.removed .name { text-decoration:line-through; fill:var(--ink2); }
+.brick.removed { opacity:.8; }
+.chip.removed { background:color-mix(in srgb, var(--rose) 18%, var(--surface)); color:var(--rose); }
+.ring { fill:none; stroke-width:2; pointer-events:none; }
+.ring.added { stroke:var(--green); } .ring.edited { stroke:var(--amber); }
+.cp { border-bottom:1px solid var(--rule); padding:8px 0 10px; max-height:55%; overflow:auto; font-size:12.5px; }
+.cp .lead { padding:0 12px 6px; }
+.cp .lead b { font-size:13px; }
+.cp h4 { margin:10px 12px 2px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink3); font-weight:600; }
+.cp .it { padding:2px 12px 2px 16px; }
+.cp a { color:var(--blue); cursor:pointer; }
+.cp a:hover { text-decoration:underline; }
+.sw { display:inline-block; width:10px; height:3px; vertical-align:3px; margin-right:6px; border-radius:2px; }
+.cp .muted { color:var(--ink3); }
+.chip.added { background:color-mix(in srgb, var(--green) 22%, var(--surface)); color:var(--green); }
+.chip.edited { background:color-mix(in srgb, var(--amber) 22%, var(--surface)); color:var(--amber); }
+.badge.added { border-color:var(--green); color:var(--green); }
+.badge.edited { border-color:var(--amber); color:var(--amber); }
+
+@media (max-width: 1100px) {
+  main { grid-template-columns:var(--lw, 220px) minmax(0,1fr); grid-template-rows:minmax(0,1fr) minmax(0,1fr); }
+  .insp { grid-column:1 / -1; border-left:0; border-top:1px solid var(--rule); }
+  #gl { left:calc(var(--lw, 220px) - 5px); bottom:50%; }
+  #gr { display:none; }
+}
+@media (max-width: 700px) {
+  body { overflow:auto; }
+  main { display:flex; flex-direction:column; }
+  .col { max-height:40vh; border-right:0; border-bottom:1px solid var(--rule); }
+  .gutter { display:none; }
+  .bench { min-height:60vh; }
+  .insp { min-height:80vh; }
+}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1 id="title">metatron workbench</h1>
+  <span class="meta" id="live"><span class="dot"></span>connecting</span>
+  <span class="meta mono" id="wiring"></span>
+  <span class="err" id="err" hidden></span>
+  <span class="spacer"></span>
+  <form class="chg" id="chgform" aria-label="Show a change">
+    <input id="chg" placeholder="main...feat/x · #12 · a1b2c3d, e4f5a6b · empty: work in progress" aria-label="Range, PR, commits, or empty for work in progress">
+    <button type="submit">show change</button>
+    <button type="button" id="chgclear" hidden>clear</button>
+  </form>
+  <label class="meta" id="pathwrap" hidden title="Keep only frontend bricks that lead to a backend call"><input type="checkbox" id="datapath"> data path</label>
+  <span class="meta">depth</span>
+  <span class="seg" id="depth" role="group" aria-label="Depth below the focused brick">
+    <button data-d="1">1</button><button data-d="2" aria-pressed="true">2</button><button data-d="3">3</button><button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+  </span>
+</div>
+<div class="scrub" id="scrub" hidden>
+  <button type="button" id="mapbtn">change map</button>
+  <span id="frames" hidden><input type="range" id="frame" min="0" step="1" aria-label="Frame"> <span class="lbl" id="framelabel"></span></span>
+</div>
+<main>
+  <aside class="col">
+    <div class="find">
+      <input id="q" type="search" placeholder="Find a brick…" autocomplete="off" aria-label="Find a brick">
+      <select id="mod" aria-label="Module"><option value="">all modules</option></select>
+      <div class="pats" id="pats"></div>
+    </div>
+    <div class="cp" id="cp" hidden></div>
+    <div class="list" id="list"></div>
+  </aside>
+  <section class="bench" id="bench"><div class="empty">Loading the model…</div></section>
+  <aside class="col insp">
+    <div class="head" id="head"></div>
+    <div class="parts" id="parts"></div>
+    <div class="src mono" id="src"></div>
+  </aside>
+  <div class="gutter" id="gl" role="separator" aria-orientation="vertical" aria-label="Resize the brick list" tabindex="0"
+    title="Drag to resize · double-click to reset"></div>
+  <div class="gutter" id="gr" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0"
+    title="Drag to resize · double-click to reset"></div>
+</main>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+'use strict';
+// ------------------------------------------------------------------ state
+// metatron-rust change: patterns-rust's data shapes. They are bricks, but
+// rarely the ones you want to wire through.
+const HIDE_BY_DEFAULT = new Set(['value-object', 'view-model', 'projection']);
+const S = {
+  m: null, byId: new Map(), focus: null, depth: 2, hidden: new Set(HIDE_BY_DEFAULT),
+  q: '', mod: '', src: new Map(), version: 0,
+  out: new Map(), inc: new Map(),       // brick -> Set of neighbours (down / up)
+  callsTo: new Map(), callsFrom: new Map(), routes: new Map(),
+  change: null, spec: null, map: false, pairCls: new Map(),   // spec 11
+};
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const short = (id) => { const b = S.byId.get(id); return b ? b.name : String(id).split('/').pop(); };
+const tierVar = (t) => `var(--l${Math.min(10, Math.max(0, t | 0))})`;
+const add = (map, k, v) => { if (!map.has(k)) map.set(k, new Set()); map.get(k).add(v); };
+const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
+
+function index(m) {
+  S.m = m;
+  S.byId = new Map(m.bricks.map((b) => [b.id, b]));
+  S.out = new Map(); S.inc = new Map(); S.callsTo = new Map(); S.callsFrom = new Map();
+  S.routes = new Map(m.endpoints.map((e) => [e.id, e]));
+  const link = (a, b) => { if (!a || !b || a === b || !S.byId.has(a) || !S.byId.has(b)) return; add(S.out, a, b); add(S.inc, b, a); };
+  for (const w of m.wires) { link(w.from, w.to); if (w.boundTo) link(w.to, w.boundTo); }
+  // metatron-rust change: `impl Trait for Type` links a port to every brick
+  // that fills it, not only to a binding a module names.
+  for (const im of m.impls || []) link(im.trait, im.type);
+  for (const c of m.calls) {
+    link(c.from, c.to);
+    if (c.boundTo) link(c.to, c.boundTo);
+    push(S.callsTo, c.to + '\u0000' + c.toMethod, c);
+    if (c.boundTo) push(S.callsTo, c.boundTo + '\u0000' + c.toMethod, c);
+    push(S.callsFrom, c.from, c);
+  }
+  // Spec 12: in a joined stack, the frontend bricks that lead to the backend
+  // (the data path) — every backend brick, and anything with a way down to one.
+  S.reaches = new Set(m.bricks.filter((b) => b.side === 'be').map((b) => b.id));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [a, outs] of S.out) {
+      if (S.reaches.has(a)) continue;
+      for (const b of outs) if (S.reaches.has(b)) { S.reaches.add(a); grew = true; break; }
+    }
+  }
+  $('pathwrap').hidden = !m.sides;
+}
+
+// ------------------------------------------------------------------ list
+function renderPats() {
+  const pats = [...new Set(S.m.bricks.map((b) => b.pattern))].sort();
+  $('pats').innerHTML = pats.map((p) => `<label><input type="checkbox" data-p="${esc(p)}" ${S.hidden.has(p) ? '' : 'checked'}>${esc(p)}</label>`).join('');
+  const mods = [...new Set(S.m.bricks.map((b) => b.module))].sort();
+  $('mod').innerHTML = '<option value="">all modules</option>' + mods.map((m) => `<option ${m === S.mod ? 'selected' : ''}>${esc(m)}</option>`).join('');
+}
+function renderList() {
+  const q = S.q.toLowerCase();
+  const shown = S.m.bricks.filter((b) => !S.hidden.has(b.pattern) && (!S.mod || b.module === S.mod)
+    && (!q || b.name.toLowerCase().includes(q) || b.file.toLowerCase().includes(q)));
+  const byMod = new Map();
+  for (const b of shown) push(byMod, b.module, b);
+  let h = '';
+  for (const [mod, list] of [...byMod].sort((a, b) => a[0].localeCompare(b[0]))) {
+    h += `<h4>${esc(mod)}</h4>`;
+    for (const b of list.sort((x, y) => x.tier - y.tier || x.name.localeCompare(y.name))) {
+      h += `<button data-id="${esc(b.id)}" aria-current="${b.id === S.focus}"><span>${esc(b.name)}</span><small>${esc(b.pattern)}</small></button>`;
+    }
+  }
+  $('list').innerHTML = h || '<div class="none">No bricks match.</div>';
+}
+
+// ------------------------------------------------------------------ neighbourhood + layout
+const MAX_NODES = 90;
+// A deep view (a page down to its repositories) needs room.
+const capFor = (depth) => (depth >= 4 ? 220 : MAX_NODES);
+function neighbourhood() {
+  const keep = (id) => id === S.focus || (!S.hidden.has(S.byId.get(id).pattern) && (!S.dataPath || S.reaches.has(id)));
+  const nodes = new Map([[S.focus, 0]]);     // id -> signed hop (down +, up -)
+  let frontier = [S.focus], cut = 0;
+  for (let d = 1; d <= S.depth; d++) {
+    const next = [];
+    for (const id of frontier) for (const n of S.out.get(id) || []) {
+      if (nodes.has(n) || !keep(n)) continue;
+      if (nodes.size >= capFor(S.depth)) { cut++; continue; }
+      nodes.set(n, d); next.push(n);
+    }
+    frontier = next;
+  }
+  for (const n of S.inc.get(S.focus) || []) {
+    if (nodes.has(n) || !keep(n)) continue;
+    if (nodes.size >= capFor(S.depth)) { cut++; continue; }
+    nodes.set(n, -1);
+  }
+  return { nodes, cut };
+}
+
+// The change map: every added or edited brick, and both ends of every new
+// or changed connection. Unchanged bricks come in only as context.
+function changeNodes() {
+  const C = S.change, nodes = new Map();
+  const put = (id) => {
+    const b = S.byId.get(id);
+    if (b && !nodes.has(id) && !S.hidden.has(b.pattern) && nodes.size < 120) nodes.set(id, 0);
+  };
+  for (const [id, st] of Object.entries(C.bricks)) if (st === 'added' || st === 'edited') put(id);
+  for (const p of C.pairs) { put(p.from); put(p.to); }
+  for (const r of C.removed) put(r.id);
+  // spec 13: a brick making a broken call is part of the change; spec 15: so
+  // is one whose call the change made drift from its endpoint's shape
+  if (C.summary.stack) for (const b of C.summary.stack.broken.concat(C.summary.stack.contractDrift || [])) put(b.from);
+  return { nodes, cut: 0 };
+}
+
+const BH = 50, GAP = 26, ROWGAP = 96, PAD = 40, LABEL = 110, PIP = 13;
+// metatron-rust change: a Rust module path is long (`domain::use_cases::activity`),
+// so a brick names the last two segments and is wide enough for the line.
+const modShort = (m) => String(m).split('::').slice(-2).join('::');
+const subOf = (b) => `${b.pattern} · ${modShort(b.module)}`;
+function brickWidth(b) {
+  const text = Math.max(b.name.length * 7.4, subOf(b).length * 5.6) + 28;
+  return Math.max(96, text, Math.min(b.studs.length, 18) * PIP + 22, Math.min(b.sockets.length, 18) * PIP + 22);
+}
+
+function layout(nodes) {
+  const ids = [...nodes.keys()];
+  const tiers = [...new Set(ids.map((id) => S.byId.get(id).tier))].sort((a, b) => a - b);
+  const rows = tiers.map((t) => ids.filter((id) => S.byId.get(id).tier === t)
+    .sort((a, b) => (nodes.get(a) - nodes.get(b)) || S.byId.get(a).module.localeCompare(S.byId.get(b).module) || a.localeCompare(b)));
+  const pos = new Map();
+  const place = () => {
+    for (const row of rows) {
+      let x = 0;
+      for (const id of row) { const w = brickWidth(S.byId.get(id)); pos.set(id, { x, w }); x += w + GAP; }
+    }
+  };
+  place();
+  // Barycentric sweeps: order each row by the mean centre of its neighbours.
+  const nb = (id) => [...(S.out.get(id) || []), ...(S.inc.get(id) || [])].filter((n) => pos.has(n));
+  for (let pass = 0; pass < 4; pass++) {
+    const order = pass % 2 ? [...rows].reverse() : rows;
+    for (const row of order) {
+      const bc = new Map(row.map((id, i) => {
+        const ns = nb(id).filter((n) => !row.includes(n));
+        const c = ns.length ? ns.reduce((a, n) => a + pos.get(n).x + pos.get(n).w / 2, 0) / ns.length : pos.get(id).x;
+        return [id, c + i * 0.001];
+      }));
+      row.sort((a, b) => bc.get(a) - bc.get(b));
+    }
+    place();
+  }
+  const widest = Math.max(...rows.map((r) => r.reduce((a, id) => a + pos.get(id).w + GAP, -GAP)));
+  rows.forEach((row, ri) => {
+    const rw = row.reduce((a, id) => a + pos.get(id).w + GAP, -GAP);
+    let x = LABEL + PAD + (widest - rw) / 2;
+    for (const id of row) { const p = pos.get(id); p.x = x; p.y = PAD + ri * (BH + ROWGAP); x += p.w + GAP; }
+  });
+  return { pos, rows, tiers, width: LABEL + PAD * 2 + widest, height: PAD * 2 + rows.length * (BH + ROWGAP) - ROWGAP };
+}
+
+// Positions of pips along an edge, capped so a wide brick stays readable.
+const pipX = (p, n, i) => { const k = Math.min(n, 18); return p.x + (p.w - (k - 1) * PIP) / 2 + Math.min(i, k - 1) * PIP; };
+
+// ------------------------------------------------------------------ bench
+function renderBench() {
+  const bench = $('bench');
+  const mapMode = S.change && S.map;
+  if (!mapMode && (!S.focus || !S.byId.has(S.focus))) { bench.innerHTML = '<div class="empty">Pick a brick on the left.</div>'; return; }
+  const { nodes, cut } = mapMode ? changeNodes() : neighbourhood();
+  if (!nodes.size) { bench.innerHTML = '<div class="empty">This change moves no bricks and no wiring. Pick a frame, or a brick on the left.</div>'; return; }
+  const L = layout(nodes);
+  const P = L.pos;
+  let edges = '', bricks = '', rowsSvg = '';
+
+  L.tiers.forEach((t, i) => {
+    const y = PAD + i * (BH + ROWGAP) + BH / 2;
+    const tier = S.m.tiers[t];
+    const side = tier && tier.side ? (tier.side === 'fe' ? 'frontend · ' : 'backend · ') : '';
+    const prev = i ? S.m.tiers[L.tiers[i - 1]] : null;
+    if (tier && prev && tier.side !== prev.side) {
+      // where a request leaves the browser
+      const yb = y - BH / 2 - ROWGAP / 2;
+      rowsSvg += `<line class="sideline" x1="${PAD}" x2="${L.width - PAD}" y1="${yb}" y2="${yb}"/>`
+        + `<text class="sidelabel" x="${L.width - PAD}" y="${yb - 6}" text-anchor="end">HTTP · frontend above, backend below</text>`;
+    }
+    rowsSvg += `<line class="rowline" x1="${PAD}" x2="${L.width - PAD}" y1="${y}" y2="${y}"/>`
+      + `<text class="rowlabel" x="${PAD}" y="${y - 6}">${esc(side + (tier ? tier.name : t))}</text>`;
+  });
+
+  const pc = (a, b) => { const c = S.change && S.pairCls.get(a + '>' + b); return c ? ' c-' + c : ''; };
+  const curve = (x1, y1, x2, y2) => {
+    const dy = Math.max(30, Math.abs(y2 - y1) / 2);
+    return `M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}`;
+  };
+  // Every drawn connection has a wider, invisible twin on top of the lines
+  // (under the bricks), so a thin line is easy to hover.
+  let hits = '', ei = 0;
+  const edge = (kind, cls, from, to, d, extra = '') => {
+    const i = ei++;
+    hits += `<path class="hit" data-i="${i}" d="${d}"/>`;
+    return `<path class="edge ${cls}" data-i="${i}" data-kind="${kind}" data-from="${esc(from)}" data-to="${esc(to)}"${extra} d="${d}"/>`;
+  };
+  // Wires leave from the socket notch that makes them.
+  const wired = new Set();
+  for (const id of nodes.keys()) {
+    const b = S.byId.get(id), p = P.get(id);
+    b.sockets.forEach((s, i) => {
+      const tgt = s.to && P.has(s.to) ? s.to : (s.boundTo && P.has(s.boundTo) ? s.boundTo : null);
+      if (!tgt) return;
+      const q = P.get(tgt);
+      wired.add(id + '>' + tgt);
+      edges += edge('wire', 'wire' + pc(id, tgt), id, tgt, curve(pipX(p, b.sockets.length, i), p.y + BH, q.x + q.w / 2, q.y), ` data-sock="${i}"`);
+      if (s.status === 'port' && s.to && s.boundTo && P.has(s.to) && P.has(s.boundTo)) {
+        const r = P.get(s.boundTo), pp = P.get(s.to);
+        if (!wired.has(s.to + '>' + s.boundTo)) {
+          wired.add(s.to + '>' + s.boundTo);
+          edges += edge('bound', 'bound' + pc(s.to, s.boundTo), s.to, s.boundTo, curve(pp.x + pp.w / 2, pp.y + BH, r.x + r.w / 2, r.y));
+        }
+      }
+    });
+  }
+  // metatron-rust change: every `impl Trait for Type` with both ends on the
+  // bench, drawn as the dotted line from the port down to what fills it.
+  for (const im of S.m.impls || []) {
+    if (!P.has(im.trait) || !P.has(im.type) || wired.has(im.trait + '>' + im.type)) continue;
+    wired.add(im.trait + '>' + im.type);
+    const pp = P.get(im.trait), r = P.get(im.type);
+    edges += edge('bound', 'bound' + pc(im.trait, im.type), im.trait, im.type, curve(pp.x + pp.w / 2, pp.y + BH, r.x + r.w / 2, r.y));
+  }
+  // What the change detached: in the base, gone at the head. Drawn from the
+  // pairs, since the head model has no wire or call left to draw.
+  if (S.change) {
+    for (const d of S.change.pairs) {
+      if (d.class !== 'detached' || !P.has(d.from) || !P.has(d.to)) continue;
+      const p = P.get(d.from), q = P.get(d.to);
+      edges += edge('detached', 'c-detached', d.from, d.to, curve(p.x + p.w / 2, p.y + BH, q.x + q.w / 2, q.y));
+    }
+  }
+  // A call with no wire behind it: a function brick, a static call, main.ts.
+  for (const id of nodes.keys()) {
+    const seen = new Set();
+    for (const c of S.callsFrom.get(id) || []) {
+      if (!P.has(c.to) || wired.has(id + '>' + c.to) || seen.has(c.to)) continue;
+      seen.add(c.to);
+      const p = P.get(id), q = P.get(c.to);
+      edges += edge(c.kind === 'http' ? 'http' : 'call', 'call' + (c.kind === 'http' ? ' http' : '') + pc(id, c.to), id, c.to, curve(p.x + p.w / 2, p.y + BH, q.x + q.w / 2, q.y));
+    }
+  }
+
+  for (const [id] of nodes) {
+    const b = S.byId.get(id), p = P.get(id), col = tierVar(b.tier);
+    const cst = S.change ? S.change.bricks[id] : null;
+    const paint = b.ghost ? 'removed' : cst === 'added' || cst === 'edited' ? cst : (S.change && mapMode ? 'ctx' : '');
+    // metatron-rust change: a trait is the hollow brick
+    let g = `<g class="brick ${b.shape === 'port' || b.shape === 'trait' ? 'port' : ''} ${id === S.focus && !mapMode ? 'focus' : ''} ${paint}" data-id="${esc(id)}">`
+      + `<rect class="body" x="${p.x}" y="${p.y}" width="${p.w}" height="${BH}" rx="5" stroke="${col}"/>`
+      + `<rect x="${p.x}" y="${p.y}" width="5" height="${BH}" rx="2" fill="${col}"/>`
+      + `<text class="name" x="${p.x + p.w / 2}" y="${p.y + 23}" text-anchor="middle">${esc(b.name)}</text>`
+      + `<text class="sub" x="${p.x + p.w / 2}" y="${p.y + 37}" text-anchor="middle">${esc(subOf(b))}</text>`;
+    b.studs.slice(0, 18).forEach((s, i) => {
+      const x = pipX(p, b.studs.length, i), y = p.y;
+      const common = `class="stud" data-id="${esc(id)}" data-stud="${i}" data-grip="${esc(s.grip)}"`;
+      if (s.grip === 'framework') g += `<rect ${common} x="${x - 4}" y="${y - 4}" width="8" height="8" fill="var(--violet)" stroke="var(--surface)"/>`;
+      else if (s.grip === 'route') g += `<circle ${common} cx="${x}" cy="${y}" r="4.5" fill="var(--surface)" stroke="var(--blue)" stroke-width="2.2"/>`;
+      else if (s.grip === 'unseen') g += `<circle ${common} cx="${x}" cy="${y}" r="4.5" fill="var(--paper)" stroke="var(--rose)" stroke-width="1.4" stroke-dasharray="2 1.6"/>`;
+      // metatron-rust change: an impl's fn, reached through the port
+      else if (s.grip === 'port') g += `<circle ${common} cx="${x}" cy="${y}" r="4.5" fill="var(--teal)" stroke="var(--surface)" stroke-width="1"/>`;
+      else g += `<circle ${common} cx="${x}" cy="${y}" r="4.5" fill="${col}" stroke="var(--surface)" stroke-width="1"/>`;
+      const sst = cst === 'edited' && S.change.studs[id] ? S.change.studs[id][s.name] : null;
+      if (sst === 'added' || sst === 'edited') g += `<circle class="ring ${sst}" cx="${x}" cy="${y}" r="7.5"/>`;
+    });
+    b.sockets.slice(0, 18).forEach((s, i) => {
+      const x = pipX(p, b.sockets.length, i);
+      // metatron-rust change: a type from another crate is grey, as the framework is
+      const fill = s.status === 'unresolved' ? 'var(--rose)' : s.status === 'framework' || s.status === 'external' ? 'var(--ink3)' : s.status === 'port' ? 'var(--teal)' : 'var(--ink)';
+      g += `<rect class="sock" data-id="${esc(id)}" data-sock="${i}" x="${x - 4.5}" y="${p.y + BH - 5}" width="9" height="7" rx="1.5" fill="${fill}" stroke="var(--surface)"/>`;
+    });
+    bricks += g + '</g>';
+  }
+
+  bench.innerHTML = (cut ? `<div class="note">${cut} more neighbours not drawn — lower the depth or hide patterns.</div>` : '')
+    + `<svg id="svg" width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}" role="img" aria-label="Bricks around ${esc(short(S.focus))}">`
+    + rowsSvg + `<g id="edges">${edges}</g><g id="hits">${hits}</g>` + bricks + '</svg>'
+    + legend();
+  const f = P.get(mapMode ? [...nodes.keys()].find((k) => S.change.bricks[k] === 'added') || [...nodes.keys()][0] : S.focus);
+  bench.scrollLeft = Math.max(0, f.x + f.w / 2 - bench.clientWidth / 2);
+  bench.scrollTop = mapMode ? 0 : Math.max(0, f.y - bench.clientHeight / 3);
+}
+/**
+ * What each mark on the bench means, in words: shown when a line, or a
+ * legend item, is hovered. [name, how it looks, what it says].
+ */
+// metatron-rust change: the wording, for Rust. There is no injector: a brick
+// is built from its fields and handed its parameters.
+const MEANING = {
+  wire: ['Wire', 'solid line', 'What the first brick is built from or handed: a field holding the second brick, or a parameter taking it. Through a trait, it is a port.'],
+  call: ['Call with no wire', 'dashed line', 'A call with no field or parameter behind it: a free function, an associated function such as Type::new(), a tuple struct or variant built in place.'],
+  bound: ['Impl', 'dotted line', 'impl Trait for Type: the second brick fills the port. It points against layer order and is not a violation; it is the dependency inversion the port exists for.'],
+  http: ['HTTP call', 'teal line', 'A frontend request crossing to the backend endpoint that serves it.'],
+  detached: ['Detached', 'rose dashed line', 'This connection was there before the change, and is gone after it.'],
+  'c-attachment': ['Attachment', 'green line', 'New code plugged into an existing brick: the first brick is new, the second was already there.'],
+  'c-graft': ['Graft', 'amber line', 'Existing code now reaches new code: the first brick was there, the second is new.'],
+  'c-rewire': ['Rewire', 'violet line', 'Two bricks that were both already there, newly connected.'],
+  'c-territory': ['Territory', 'thin green line', 'New code connected to new code.'],
+  'c-kept': ['New calls on a kept wire', 'blue line', 'The connection was already there. This change adds calls along it.'],
+  'pip-brick': ['Stud', 'filled dot on top', "What a brick offers: a pub fn or method, or a trait's declared fn. Some other brick in the tree calls this one."],
+  'pip-port': ['Port stud', 'teal dot on top', "An impl of a trait in the tree. No brick calls it by name, but one calls the trait's fn, and this is a brick that can answer."],
+  'pip-route': ['Entry stud', 'ringed dot on top', 'Reached from outside the code: a CLI subcommand handler (cmd_*) or a TUI key handler (handle_*_key), as the traffic view finds them.'],
+  'pip-framework': ['Foreign-trait stud', 'square on top', 'Called through a trait this crate does not own: Display::fmt, Drop::drop, Iterator::next. The caller is std or another crate.'],
+  'pip-unseen': ['Unseen stud', 'dashed ring on top', 'Nothing in the scanned tree is seen calling it. Not necessarily dead: a call on a local whose type would have to be inferred, a call inside a closure passed elsewhere, or a caller outside the tree would not show.'],
+  'pip-socket': ['Socket', 'notch underneath', 'What the brick plugs into: a field, or a parameter of one of its fns. Black: a type in the tree. Teal: a trait in the tree, a port. Grey: a type from another crate. Rose: a path the scan could not place.'],
+  'brick-added': ['Added brick', 'green brick', 'New in this change.'],
+  'brick-edited': ['Edited brick', 'amber brick', 'Changed in this change. A ring marks each stud that was added or edited.'],
+  'brick-ctx': ['Context', 'faded brick', 'Unchanged. Drawn because a changed connection touches it.'],
+  'brick-removed': ['Removed brick', 'rose dashed brick', 'Deleted by this change, drawn as it was.'],
+};
+const CHANGE_SW = { 'c-attachment': 'var(--green)', 'c-graft': 'var(--amber)', 'c-rewire': 'var(--violet)', 'c-territory': 'var(--green)', 'c-kept': 'var(--blue)' };
+
+function legend() {
+  const pip = (inner) => `<svg width="12" height="12" viewBox="-6 -6 12 12">${inner}</svg>`;
+  const line = (dash, color = 'var(--ink3)') => `<svg width="22" height="8" viewBox="0 0 22 8"><line x1="1" x2="21" y1="4" y2="4" stroke="${color}" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}/></svg>`;
+  const item = (k, mark, text) => `<span data-legend="${k}">${mark}${text}</span>`;
+  const sw = (k) => `<i class="sw" style="background:${CHANGE_SW[k] || 'var(--rose)'}"></i>`;
+  return `<div class="legend">`
+    + item('pip-brick', pip('<circle r="4.5" fill="var(--l4)"/>'), 'stud a brick grips')
+    // metatron-rust change: a port stud; entry and foreign trait for route and framework
+    + item('pip-port', pip('<circle r="4.5" fill="var(--teal)"/>'), 'through a port')
+    + item('pip-route', pip('<circle r="4" fill="var(--surface)" stroke="var(--blue)" stroke-width="2"/>'), 'entry')
+    + item('pip-framework', pip('<rect x="-4" y="-4" width="8" height="8" fill="var(--violet)"/>'), 'foreign trait')
+    + item('pip-unseen', pip('<circle r="4" fill="none" stroke="var(--rose)" stroke-dasharray="2 1.6"/>'), 'unseen')
+    + item('pip-socket', pip('<rect x="-4.5" y="-3" width="9" height="6" fill="var(--ink)"/>'), 'socket')
+    + item('wire', line(''), 'wire')
+    + item('call', line('4 4'), 'call with no wire')
+    + item('bound', line('1.5 3'), 'trait → impl')
+    + (S.m.bridge ? item('http', line('', 'var(--teal)'), 'HTTP, frontend → backend') : '')
+    + (S.change ? item('c-attachment', sw('c-attachment'), 'attachment: new → existing')
+      + item('c-graft', sw('c-graft'), 'graft: existing → new')
+      + item('c-rewire', sw('c-rewire'), 'rewire: existing → existing')
+      + item('c-kept', sw('c-kept'), 'new calls on a kept wire')
+      + item('detached', sw('detached'), 'detached')
+      + item('brick-added', '<i class="sw" style="background:var(--green);height:8px"></i>', 'added')
+      + item('brick-edited', '<i class="sw" style="background:var(--amber);height:8px"></i>', 'edited')
+      + item('brick-ctx', '<i class="sw" style="background:var(--rule2);height:8px"></i>', 'unchanged')
+      + item('brick-removed', '<i class="sw" style="border:1px dashed var(--rose);height:6px"></i>', 'removed') : '')
+    + '</div>';
+}
+
+// ------------------------------------------------------------------ hover
+const tip = $('tip');
+function showTip(e, html) { tip.innerHTML = html; tip.hidden = false; moveTip(e); }
+function moveTip(e) {
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - r.width - 8) + 'px';
+  tip.style.top = Math.min(e.clientY + 14, innerHeight - r.height - 8) + 'px';
+}
+function clearLit() {
+  document.querySelectorAll('#bench .lit').forEach((n) => n.classList.remove('lit'));
+  document.querySelectorAll('#bench .dim').forEach((n) => n.classList.remove('dim'));
+}
+function hoverStud(el, e) {
+  const b = S.byId.get(el.dataset.id), s = b.studs[+el.dataset.stud];
+  const calls = S.callsTo.get(b.id + '\u0000' + s.name) || [];
+  el.classList.add('lit');
+  const callers = new Set(calls.map((c) => c.from));
+  document.querySelectorAll('#edges .edge').forEach((p) => {
+    if (p.dataset.to === b.id && callers.has(p.dataset.from)) p.classList.add('lit'); else p.classList.add('dim');
+  });
+  const route = routeOf(s);
+  const by = calls.length ? calls.map((c) => `${esc(short(c.from))}.${esc(c.fromMethod || '(module)')}`).slice(0, 8).join(', ')
+    + (calls.length > 8 ? ` +${calls.length - 8}` : '') : '';
+  showTip(e, `<code>${esc(s.sig)}</code><br><span class="k">grip</span> ${esc(s.grip)}`
+    + (route ? ` · <code>${esc(route)}</code>` : '')
+    + httpLines(s, ' · ')
+    + (s.framework ? ` · ${esc(s.framework)}` : '')
+    // metatron-rust change: the trait a port stud is reached through
+    + (s.grip === 'port' && s.trait ? ` · through <code>${esc(s.trait)}</code>` : '')
+    + (by ? `<br><span class="k">gripped by</span> ${by}` : ''));
+}
+function hoverSock(el, e) {
+  const b = S.byId.get(el.dataset.id), s = b.sockets[+el.dataset.sock];
+  el.classList.add('lit');
+  const tgt = s.to || s.boundTo;
+  const used = new Set((S.callsFrom.get(b.id) || []).filter((c) => c.to === s.to || c.to === s.boundTo).map((c) => c.toMethod));
+  document.querySelectorAll('#edges .edge').forEach((p) => {
+    if (p.dataset.from === b.id && p.dataset.sock === el.dataset.sock) p.classList.add('lit'); else p.classList.add('dim');
+  });
+  for (const id of [s.to, s.boundTo].filter(Boolean)) {
+    const t = S.byId.get(id);
+    if (!t) continue;
+    t.studs.forEach((st, i) => {
+      if (!used.has(st.name)) return;
+      const n = document.querySelector(`#bench .stud[data-id="${CSS.escape(id)}"][data-stud="${i}"]`);
+      if (n) n.classList.add('lit');
+    });
+  }
+  showTip(e, `<code>${esc(s.prop)}: ${esc(s.external || s.type || '?')}</code><br><span class="k">${esc(s.status)}</span>`
+    + (tgt ? ` → ${esc(short(tgt))}` : '') + (s.boundTo && s.to ? ` <span class="k">bound to</span> ${esc(short(s.boundTo))}` : '')
+    + (used.size ? `<br><span class="k">grips</span> ${[...used].map(esc).join(', ')}` : ''));
+}
+
+/** What a hovered line is, between which bricks, and why it is drawn. */
+function hoverEdge(hit, e) {
+  const p = document.querySelector(`#edges .edge[data-i="${hit.dataset.i}"]`);
+  if (!p) return;
+  document.querySelectorAll('#edges .edge').forEach((x) => x.classList.add(x === p ? 'lit' : 'dim'));
+  const from = p.dataset.from, to = p.dataset.to, kind = p.dataset.kind;
+  const [name, look, what] = MEANING[kind];
+  let h = `<b>${esc(name)}</b> <span class="k">· ${esc(look)}</span><br>${esc(short(from))} → ${esc(short(to))}`;
+  const calls = (S.callsFrom.get(from) || []).filter((c) => c.to === to || c.boundTo === to);
+  const said = (list) => [...new Set(list)].slice(0, 6).join('<br>') + (new Set(list).size > 6 ? '<br>…' : '');
+  if (kind === 'wire') {
+    const s = S.byId.get(from).sockets[+p.dataset.sock];
+    // metatron-rust change: a field holds it, a parameter takes it
+    if (s) h += `<br><span class="k">${s.via === 'param' ? 'taken as' : 'held as'}</span> <code>${esc(s.prop)}: ${esc(s.type || '?')}</code>`;
+  }
+  if (kind === 'http') {
+    h += '<br>' + said(calls.map((c) => `${esc(c.fromMethod || '(module)')} <code>${esc(c.verb)} ${esc(c.path)}</code> → ${esc(short(to))}.${esc(c.toMethod || '?')}`));
+  } else if (kind === 'detached') {
+    const d = S.change && S.change.pairs.find((x) => x.class === 'detached' && x.from === from && x.to === to);
+    if (d && d.calls) h += '<br><span class="k">it carried</span><br>' + said(d.calls.map(esc));
+  } else if (calls.length) {
+    const fm = (c) => esc(c.fromMethod || '(module)');
+    const VERB = { render: (c) => `${fm(c)} renders it`, mount: () => 'a route mounts it', hook: (c) => `${fm(c)} uses it`,
+      context: (c) => `${fm(c)} reads it`, provide: (c) => `${fm(c)} provides it` };
+    h += '<br>' + said(calls.map((c) => (VERB[c.kind] ? VERB[c.kind](c) : `${fm(c)} → ${esc(short(c.to))}.${esc(c.toMethod || '?')}`)));
+  }
+  h += `<br><span class="k">${esc(what)}</span>`;
+  const cc = [...p.classList].find((c) => MEANING[c] && c.startsWith('c-'));
+  if (cc) h += `<br><i class="sw" style="background:${CHANGE_SW[cc]}"></i><b>${esc(MEANING[cc][0])}</b> <span class="k">${esc(MEANING[cc][2])}</span>`;
+  showTip(e, h);
+}
+/** A legend item: what it means, and every mark of its kind on the bench, lit. */
+function hoverLegend(el, e) {
+  const k = el.dataset.legend, m = MEANING[k];
+  if (!m) return;
+  let n;
+  if (k.startsWith('pip-')) {
+    const marks = document.querySelectorAll(k === 'pip-socket' ? '#bench .sock' : `#bench .stud[data-grip="${k.slice(4)}"]`);
+    marks.forEach((x) => x.classList.add('lit'));
+    n = marks.length;
+  } else if (k.startsWith('brick-')) {
+    const all = [...document.querySelectorAll('#bench .brick')];
+    all.forEach((b) => b.classList.toggle('dim', !b.classList.contains(k.slice(6))));
+    n = all.filter((b) => b.classList.contains(k.slice(6))).length;
+  } else {
+    const sel = k.startsWith('c-') ? '.' + k : `[data-kind="${k}"]`;
+    const all = [...document.querySelectorAll('#edges .edge')];
+    all.forEach((x) => x.classList.add(x.matches(sel) ? 'lit' : 'dim'));
+    n = all.filter((x) => x.matches(sel)).length;
+  }
+  showTip(e, `<b>${esc(m[0])}</b> <span class="k">· ${esc(m[1])}</span><br>${esc(m[2])}<br><span class="k">${n} on the bench now</span>`);
+}
+
+// ------------------------------------------------------------------ inspector
+function callersOf(b, s) {
+  const calls = S.callsTo.get(b.id + '\u0000' + s.name) || [];
+  const uniq = new Map();
+  for (const c of calls) uniq.set(c.from + '#' + c.fromMethod, c);
+  return [...uniq.values()];
+}
+/** A stud's route: a backend endpoint (by id), or a frontend path. */
+function routeOf(s) {
+  if (!s.route) return null;
+  const e = S.routes.get(s.route);
+  return e ? e.verb + ' ' + e.route : 'route ' + s.route;
+}
+/** A stud's HTTP calls and where each lands (spec 12). */
+function httpText(h) {
+  const where = h.match === 'matched' ? '→ ' + h.endpoint.split('#')[0]
+    : h.match === 'unserved' && h.endpoint ? '→ ' + h.endpoint.split('#')[0] + ' · not served: no module lists its controller'
+      : h.match ? h.match : '';
+  return `${h.verb} ${h.path === null ? '(unread URL)' : h.path} ${where}`.trim();
+}
+function httpLines(s, sep) { return (s.http || []).map((h) => sep + '<code>' + esc(httpText(h)) + '</code>').join(''); }
+function httpRows(b, s) {
+  return (s.http || []).map((h) => {
+    const call = S.m.calls.find((c) => c.kind === 'http' && c.from === b.id && c.line === h.line && c.verb === h.verb && c.path === h.path && c.to);
+    const bad = h.match && h.match !== 'matched';
+    return `<span class="by">${bad ? '<b style="color:var(--rose)">' : ''}${esc(httpText(h))}${bad ? '</b>' : ''}`
+      + (call ? ` · <a data-go="${esc(call.to)}">${esc(short(call.to))}.${esc(call.toMethod)}</a>` : '') + '</span>'
+      + contractRow(h.contract);
+  }).join('');
+}
+/** Spec 15: one comparison's difference in words, as src/contracts.js describes it. */
+function describeDiff(r) {
+  return [r.why, r.extra && r.extra.length ? 'sends ' + r.extra.join(', ') + ' (undeclared)' : '',
+    r.missing && r.missing.length ? 'missing ' + r.missing.join(', ') : '',
+    r.optional && r.optional.length ? 'optional here, required there: ' + r.optional.join(', ') : ''].filter(Boolean).join('; ');
+}
+/** A matched call's contract: ✓, what differs, or unread (the reason on hover). */
+function contractRow(k) {
+  if (!k) return '';
+  const side = (name, r) => r.status === 'agree' ? `${name} <span style="color:var(--green)">✓</span>`
+    : r.status === 'differ' ? `<b style="color:var(--amber)">${name}: ${esc(describeDiff(r))}</b>`
+      : `<span title="${esc(r.why || '')}">${name} unread</span>`;
+  return `<span class="by contract">${side('request', k.request)} · ${side('response', k.response)}</span>`;
+}
+
+function renderInspector() {
+  const b = S.byId.get(S.focus);
+  if (!b) { $('head').innerHTML = ''; $('parts').innerHTML = ''; $('src').innerHTML = ''; return; }
+  const tier = S.m.tiers[b.tier];
+  $('head').innerHTML = `<h2>${esc(b.name)}</h2><div class="path mono">${esc(b.file)}:${b.lines[0]}–${b.lines[1]}</div>
+    <div class="chips"><span class="chip">${esc(b.pattern)}</span><span class="chip">${esc(b.module)}</span>
+    <span class="chip">${esc(tier ? tier.name : b.tier)}</span><span class="chip">${esc(b.shape)}</span>
+    ${S.change && S.change.bricks[b.id] && S.change.bricks[b.id] !== 'unchanged' ? `<span class="chip ${esc(S.change.bricks[b.id])}">${esc(S.change.bricks[b.id])} in this change</span>` : ''}
+    ${b.ghost ? '<span class="chip removed">removed in this change · shown as it was</span>' : ''}
+    ${b.extends ? `<span class="chip">extends ${esc(b.extends)}</span>` : ''}</div>`;
+  let h = '';
+  const row = (lines, inner, extra = '') => `<button class="row" data-lines="${lines[0]}-${lines[1]}">${inner}${extra}</button>`;
+  // metatron-rust change: any brick can have sockets — a type's fields, and
+  // the parameters of any fn — so the section is never left out.
+  {
+    h += '<h3>sockets</h3>' + (b.sockets.length ? b.sockets.map((s) => {
+      const tgt = s.to || s.boundTo;
+      return `<button class="row" data-lines="${s.line}-${s.line}"><code>${esc(s.prop)}: ${esc(s.external || s.type || '?')}</code>`
+        + `<span class="badge ${esc(s.status)}">${esc(s.status)}</span>`
+        + (tgt ? `<span class="by">→ <a data-go="${esc(tgt)}">${esc(short(tgt))}</a>${s.boundTo && s.to ? ` · bound to <a data-go="${esc(s.boundTo)}">${esc(short(s.boundTo))}</a>` : ''}</span>` : '')
+        + (s.entity ? `<span class="by">entity <a data-go="${esc(s.entity)}">${esc(short(s.entity))}</a></span>` : '')
+        + (s.why ? `<span class="by">${esc(s.why)}</span>` : '')
+        + '</button>';
+    }).join('') : '<div class="none">none — no field or parameter names another part</div>');
+  }
+  h += '<h3>studs</h3>' + (b.studs.length ? b.studs.map((s) => {
+    const callers = callersOf(b, s);
+    const route = routeOf(s);
+    const cs = S.change && S.change.studs[b.id] ? S.change.studs[b.id][s.name] : null;
+    // metatron-rust change: no `static` prefix (an associated fn's signature
+    // already says it takes no self), and the trait an impl's fn fills
+    return row(s.lines, `<code>${esc(s.sig)}</code><span class="badge ${esc(s.grip)}">${esc(s.grip)}${s.framework ? ' · ' + esc(s.framework) : ''}</span>`
+      + (s.trait && !s.framework ? `<span class="badge trait">impl ${esc(s.trait)}</span>` : '')
+      + (cs === 'added' || cs === 'edited' ? `<span class="badge ${cs}">${cs}</span>` : ''),
+      (route ? `<span class="by">${esc(route)}</span>` : '') + httpRows(b, s)
+      + (callers.length ? `<span class="by">← ${callers.map((c) => `<a data-go="${esc(c.from)}">${esc(short(c.from))}.${esc(c.fromMethod || '(module)')}</a>`).join(', ')}</span>` : ''));
+  }).join('') : '<div class="none">none</div>');
+  if (b.internals.length) {
+    h += '<h3>internals</h3>' + b.internals.map((s) => row(s.lines, `<code>${esc(s.sig)}</code>${s.access ? `<span class="badge">${esc(s.access)}</span>` : ''}`)).join('');
+  }
+  $('parts').innerHTML = h;
+  renderSource(b);
+}
+
+// ------------------------------------------------------------------ source
+// metatron-rust change: the highlighter reads Rust. `'` opens a char literal
+// or a lifetime, never a string; a string can run over several lines, raw
+// strings close on their own run of `#`; `#[...]` and `name!` take the
+// decorator colour.
+const KW = new Set(('as async await break const continue crate dyn else enum extern false fn for if impl in let loop '
+  + 'match mod move mut pub ref return self Self static struct super trait true type unsafe use where while').split(' '));
+const CHAR = /^'(?:[^'\\]|\\(?:[nrt0\\'"]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]{1,6}\}))'/;
+function highlight(lines) {
+  let inBlock = false, inStr = null;   // inStr: the closing text of an open string
+  return lines.map((line) => {
+    let out = '', i = 0;
+    const put = (cls, t) => { out += cls ? `<span class="${cls}">${esc(t)}</span>` : esc(t); };
+    const closeStr = (from) => {
+      if (inStr === '"') {
+        let j = from;
+        while (j < line.length && line[j] !== '"') j += line[j] === '\\' ? 2 : 1;
+        if (j < line.length) { inStr = null; return j + 1; }
+        return line.length;
+      }
+      const e = line.indexOf(inStr, from);
+      if (e < 0) return line.length;
+      const z = e + inStr.length; inStr = null; return z;
+    };
+    while (i < line.length) {
+      if (inBlock) {
+        const e = line.indexOf('*/', i);
+        if (e < 0) { put('com', line.slice(i)); i = line.length; } else { put('com', line.slice(i, e + 2)); i = e + 2; inBlock = false; }
+        continue;
+      }
+      if (inStr) { const j = closeStr(i); put('str', line.slice(i, j)); i = j; continue; }
+      const c = line[i], rest = line.slice(i);
+      if (rest.startsWith('//')) { put('com', rest); break; }
+      if (rest.startsWith('/*')) { inBlock = true; continue; }
+      const raw = rest.match(/^b?r(#*)"/);
+      if (raw && !/[\w$]/.test(line[i - 1] || '')) {
+        inStr = '"' + raw[1];
+        const j = inStr === '"' ? (() => { const e = line.indexOf('"', i + raw[0].length); if (e < 0) return line.length; inStr = null; return e + 1; })()
+          : closeStr(i + raw[0].length);
+        put('str', line.slice(i, j)); i = j; continue;
+      }
+      if (c === '"' || (c === 'b' && line[i + 1] === '"' && !/[\w$]/.test(line[i - 1] || ''))) {
+        inStr = '"';
+        const j = closeStr(i + (c === 'b' ? 2 : 1));
+        put('str', line.slice(i, j)); i = j; continue;
+      }
+      if (c === "'") {
+        const ch = rest.match(CHAR);
+        if (ch) { put('str', ch[0]); i += ch[0].length; continue; }
+        const lt = rest.match(/^'[A-Za-z_]\w*/);
+        if (lt) { put('kw', lt[0]); i += lt[0].length; continue; }
+      }
+      if (c === '#' && (line[i + 1] === '[' || (line[i + 1] === '!' && line[i + 2] === '['))) {
+        let depth = 0, j = i;
+        for (; j < line.length; j++) { if (line[j] === '[') depth++; else if (line[j] === ']' && --depth === 0) break; }
+        put('dec', line.slice(i, j + 1)); i = j + 1; continue;
+      }
+      if (/[0-9]/.test(c) && !/[\w$]/.test(line[i - 1] || '')) { const m = rest.match(/^[0-9][0-9a-zA-Z_]*(?:\.[0-9][0-9a-zA-Z_]*)?/); put('num', m[0]); i += m[0].length; continue; }
+      if (/[A-Za-z_]/.test(c)) {
+        const m = rest.match(/^\w+/)[0];
+        if (line[i + m.length] === '!' && line[i + m.length + 1] !== '=') { put('dec', m + '!'); i += m.length + 1; continue; }
+        put(KW.has(m) ? 'kw' : /^[A-Z]/.test(m) ? 'ty' : '', m); i += m.length; continue;
+      }
+      put('', c); i++;
+    }
+    return out;
+  });
+}
+async function renderSource(b) {
+  // A removed brick is read at the base; everything else at this frame.
+  const rev = S.change ? (b.ghost ? S.change.base : S.change.rev) : null;
+  const key = S.version + '|' + (rev || '') + '|' + b.file;
+  const box = $('src');
+  if (!S.src.has(key)) {
+    box.innerHTML = '<div class="none">loading source…</div>';
+    try {
+      const r = await fetch('api/source?file=' + encodeURIComponent(b.file) + (rev ? '&rev=' + rev : ''));
+      S.src.set(key, r.ok ? await r.text() : null);
+    } catch { S.src.set(key, null); }
+    if (S.focus !== b.id) return;
+  }
+  const text = S.src.get(key);
+  if (text == null) { box.innerHTML = '<div class="none">source unavailable</div>'; return; }
+  const all = text.split('\n');
+  const [from, to] = b.lines;
+  const html = highlight(all.slice(from - 1, to));
+  const markers = new Map();
+  for (const c of S.callsFrom.get(b.id) || []) push(markers, c.line, c);
+  let rows = '';
+  html.forEach((h, k) => {
+    const n = from + k;
+    const ms = (markers.get(n) || []).map((c) => c.kind === 'http'
+      ? (c.to ? `<button class="go" data-go="${esc(c.to)}">→ ${esc(c.verb)} ${esc(short(c.to))}.${esc(c.toMethod)}</button>`
+        : `<span class="go" style="cursor:default;color:var(--rose)">${esc(c.verb)} ${esc(c.match === 'unserved' ? 'not served' : c.match || 'unmatched')}</span>`)
+      // metatron-rust change: building a tuple struct or variant names no method
+      : `<button class="go" data-go="${esc(c.boundTo || c.to)}">→ ${esc(short(c.boundTo || c.to))}${c.toMethod ? '.' + esc(c.toMethod) : ''}</button>`).join('');
+    rows += `<tr data-n="${n}"><td class="n">${n}</td><td>${h}${ms}</td></tr>`;
+  });
+  box.innerHTML = `<table>${rows}</table>`;
+  box.scrollTop = 0;
+}
+function flashLines(a, z) {
+  const box = $('src');
+  box.querySelectorAll('tr.flash').forEach((r) => r.classList.remove('flash'));
+  let first = null;
+  for (let n = a; n <= z; n++) {
+    const r = box.querySelector(`tr[data-n="${n}"]`);
+    if (r) { r.classList.add('flash'); first = first || r; }
+  }
+  if (first) box.scrollTop = first.offsetTop - 24;
+}
+
+// ------------------------------------------------------------------ focus + wiring up
+// The hash carries the focus and, in change mode, the change:
+// #b=<brick>&change=<range | pr:N | wip>&f=<frame>&map=1
+function readHash() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  return { b: q.get('b'), change: q.get('change'), f: q.get('f'), map: q.get('map') === '1' };
+}
+function writeHash(push) {
+  const q = new URLSearchParams();
+  if (S.focus) q.set('b', S.focus);
+  if (S.spec !== null) {
+    q.set('change', S.spec);
+    if (S.change && S.change.frame !== S.change.frames.length - 1) q.set('f', S.change.frame);
+    if (S.map) q.set('map', '1');
+  }
+  const h = '#' + q.toString().replace(/%2F/g, '/').replace(/%23/g, '#');
+  if (h === location.hash) return;
+  if (push) history.pushState(null, '', h); else history.replaceState(null, '', h);
+}
+function fromHash() { return readHash().b; }
+function focus(id, quiet) {
+  if (!S.byId.has(id)) return;
+  S.focus = id;
+  S.map = false;
+  if (!quiet) writeHash(true);
+  renderList(); renderBench(); renderInspector(); renderScrub();
+}
+function defaultFocus() {
+  // The most connected service-ish brick: a good first stack to look at.
+  let best = null, score = -1;
+  for (const b of S.m.bricks) {
+    if (S.hidden.has(b.pattern)) continue;
+    const s = (S.out.get(b.id) || new Set()).size + (S.inc.get(b.id) || new Set()).size;
+    if (s > score) { best = b.id; score = s; }
+  }
+  return best;
+}
+function status() {
+  const W = S.m.wiringMeta;
+  $('title').textContent = S.m.project + ' · workbench';
+  document.title = S.m.project + ' · metatron workbench';
+  const B = S.m.bridge;
+  $('wiring').textContent = `${S.m.bricks.length} bricks · ${W.resolved}/${W.sockets} sockets · ${S.m.calls.length} calls · ${W.studs.unseen} unseen studs`
+    + (B && !B.error ? ` · http ${B.matched}/${B.calls} matched` : '') + ` · v${S.m.version}`;
+  $('live').innerHTML = `<span class="dot ${S.m.watching ? 'live' : ''}"></span>${S.m.watching ? 'live' : 'static'}`;
+  // metatron-rust change: no change overlay until `metatron diff` (spec 10)
+  // exists, so no box that can only fail
+  $('chgform').hidden = S.m.changes === false;
+  $('err').hidden = !S.m.error;
+  $('err').textContent = S.m.error ? 'last re-scan failed: ' + S.m.error + ' — showing the previous model' : '';
+}
+async function load() {
+  const h = readHash();
+  if (h.change !== null) return loadChange(h.change, h.f, h.map || !h.b);
+  S.change = null; S.spec = null; S.pairCls = new Map();
+  const m = await (await fetch('api/model')).json();
+  S.version = m.version;
+  index(m);
+  renderPats(); status(); renderChangePanel();
+  const want = (S.focus && S.byId.has(S.focus)) ? S.focus : (h.b && S.byId.has(h.b) ? h.b : defaultFocus());
+  S.focus = null;
+  focus(want, true);
+  writeHash(false);
+}
+
+// ------------------------------------------------------------------ change mode (spec 11)
+function specQuery(spec) {
+  if (spec === 'wip' || spec === '') return '';
+  if (spec.startsWith('commits:')) return 'commits=' + encodeURIComponent(spec.slice(8));
+  const pr = spec.match(/^(?:pr:|#)(\d+)$/);
+  return pr ? 'pr=' + pr[1] : 'range=' + encodeURIComponent(spec);
+}
+async function loadChange(spec, frame, map) {
+  spec = (spec.trim() || 'wip').replace(/^#(\d+)$/, 'pr:$1');
+  // One commit or a hand-picked set: hashes separated by commas or spaces.
+  if (/^[0-9a-f]{7,40}([\s,]+[0-9a-f]{7,40})*$/i.test(spec)) spec = 'commits:' + spec.split(/[\s,]+/).join(',');
+  $('bench').innerHTML = '<div class="empty">Scanning the change…</div>';
+  const q = specQuery(spec);
+  const url = 'api/change?' + q + (frame !== null && frame !== undefined && frame !== '' ? (q ? '&' : '') + 'frame=' + frame : '');
+  const r = await fetch(url);
+  const d = await r.json();
+  if (!r.ok) {
+    $('err').hidden = false; $('err').textContent = d.error;
+    $('bench').innerHTML = `<div class="empty">Could not show that change:<br><pre class="mono">${esc(d.error)}</pre></div>`;
+    return;
+  }
+  S.version = d.version;
+  S.spec = spec;
+  S.change = d.change;
+  index(d);
+  // Removed bricks are not in the head model: add them as ghosts, as they
+  // were at the base, linked by the pairs the change detached.
+  // A removed backend brick keeps its side's own tier: offset it below the
+  // frontend's, as the joined stack offsets every live backend brick.
+  const feTiers = d.sides ? d.tiers.filter((t) => t.side === 'fe').length : 0;
+  for (const r of d.change.removed) {
+    S.byId.set(r.id, Object.assign({}, r, { ghost: true, tier: r.tier + (r.side === 'be' ? feTiers : 0) }));
+  }
+  for (const p of d.change.pairs) {
+    if (p.class !== 'detached' || !(S.byId.get(p.from)?.ghost || S.byId.get(p.to)?.ghost)) continue;
+    add(S.out, p.from, p.to); add(S.inc, p.to, p.from);
+  }
+  S.pairCls = new Map(d.change.pairs.map((p) => [p.from + '>' + p.to, p.class]));
+  $('chg').value = spec === 'wip' ? '' : spec.replace(/^pr:/, '#').replace(/^commits:/, '').replace(/,/g, ', ');
+  $('chgclear').hidden = false;
+  renderPats(); status(); renderChangePanel();
+  const h = readHash();
+  S.focus = h.b && S.byId.has(h.b) ? h.b : S.focus && S.byId.has(S.focus) ? S.focus : null;
+  S.map = !!map || !S.focus;
+  renderList(); renderBench(); renderScrub();
+  if (S.focus) renderInspector();
+  else {
+    $('head').innerHTML = '<h2>The change</h2><div class="path">Click a brick on the map to inspect it and read its source at this frame.</div>';
+    $('parts').innerHTML = ''; $('src').innerHTML = '';
+  }
+  writeHash(false);
+}
+function renderScrub() {
+  const C = S.change;
+  $('scrub').hidden = !C;
+  if (!C) return;
+  $('mapbtn').setAttribute('aria-pressed', String(S.map));
+  $('mapbtn').textContent = S.map ? 'change map' : 'back to the change map';
+  const many = C.frames.length > 2;
+  $('frames').hidden = !many;
+  if (many) {
+    $('frame').max = C.frames.length - 1;
+    $('frame').value = C.frame;
+    const f = C.frames[C.frame];
+    $('framelabel').innerHTML = `<strong>${C.frame}/${C.frames.length - 1}</strong> ${f.sha ? esc(f.sha.slice(0, 7)) + ' ' : ''}${esc(f.subject)}`
+      + (f.built ? ' <span class="muted">· built: the base plus the picked commits so far</span>' : '');
+  }
+}
+/** Spec 13: what the change does across the stack — broken calls first. */
+function stackPanel(st, link) {
+  const endpointBrick = (id) => {
+    const e = S.m.endpoints.find((x) => x.id === id);
+    return e ? e.file + '#' + e.cls : null;
+  };
+  const ep = (id) => {
+    const b = endpointBrick(id);
+    const label = esc(id.split('#')[0]);
+    return b && S.byId.has(b) ? `<a data-go="${esc(b)}">${label}</a>` : `<code>${label}</code>`;
+  };
+  let h = '<h4><i class="sw" style="background:var(--teal)"></i>across the stack</h4>';
+  if (st.broken.length) {
+    h += `<div class="it"><b style="color:var(--rose)">${st.broken.length} broken call${st.broken.length === 1 ? '' : 's'}</b></div>`
+      + st.broken.map((b) => `<div class="it" style="color:var(--rose)">${esc(b.verb)} <code>${esc(b.path)}</code>`
+        + ` <span class="muted">from</span> ${link(b.from)} <span class="muted">· ${b.match === 'unserved' && b.endpoint ? 'reaches ' + esc(b.endpoint.split('#')[0]) + ', which no module serves'
+          : b.was ? 'reached ' + esc(b.was.split('#')[0]) + ' before' : 'new, reaches nothing'}</span></div>`).join('');
+  }
+  const fixed = st.fixed || [];
+  if (fixed.length) {
+    const was = { unmatched: 'reached nothing', ambiguous: 'was ambiguous', unserved: 'was not served' };
+    h += `<div class="it"><b style="color:var(--green)">${fixed.length} call${fixed.length === 1 ? '' : 's'} fixed</b></div>`
+      + fixed.map((f) => `<div class="it">${esc(f.verb)} <code>${esc(f.path)}</code> <span class="muted">from</span> ${link(f.from)}`
+        + ` <span class="muted">· now reaches</span> ${ep(f.endpoint)} <span class="muted">(${was[f.was] || esc(f.was)})</span></div>`).join('');
+  }
+  const drift = st.contractDrift || [];
+  if (drift.length) {
+    h += `<div class="it"><b style="color:var(--amber)">${drift.length} call${drift.length === 1 ? ' drifts' : 's drift'} from the endpoint's declared shape</b></div>`
+      + drift.map((d) => `<div class="it">${esc(d.verb)} <code>${esc(d.path)}</code> <span class="muted">from</span> ${link(d.from)}`
+        + ` <span class="muted">· ${esc([d.request ? 'request: ' + describeDiff(d.request) : '', d.response ? 'response: ' + describeDiff(d.response) : ''].filter(Boolean).join(' · '))}</span></div>`).join('');
+  }
+  if (st.endpointsAdded.length) {
+    h += `<div class="it muted">endpoints added</div>` + st.endpointsAdded.map((e) => `<div class="it">+ ${ep(e.id)} `
+      + (e.calledBy.length ? `<span class="muted">←</span> ${e.calledBy.map(link).join(', ')}` : '<span class="muted">nothing calls it yet</span>') + '</div>').join('');
+  }
+  if (st.endpointsRemoved.length) {
+    h += `<div class="it muted">endpoints removed</div>` + st.endpointsRemoved.map((e) => `<div class="it">− <code>${esc(e.id.split('#')[0])}</code> `
+      + (e.calledBy.length ? `<span class="muted">was called by</span> ${e.calledBy.map(link).join(', ')}` : '') + '</div>').join('');
+  }
+  const n = st.http;
+  const parts = ['territory', 'attachment', 'graft', 'rewire', 'detached'].filter((k) => n[k]).map((k) => `${n[k]} ${k}`);
+  h += `<div class="it muted">HTTP: ${parts.length ? parts.join(' · ') : 'no connection between the sides moved'}</div>`;
+  if (st.unread.length) h += `<div class="it muted">${st.unread.length} call${st.unread.length === 1 ? '' : 's'} with a URL metatron cannot read</div>`;
+  return h;
+}
+
+function renderChangePanel() {
+  const C = S.change, cp = $('cp');
+  cp.hidden = !C;
+  if (!C) return;
+  const s = C.summary;
+  const link = (id) => S.byId.has(id) ? `<a data-go="${esc(id)}">${esc(short(id))}</a>` : `<span class="muted">${esc(String(id).split('/').pop())}</span>`;
+  let h = `<div class="lead"><b>${esc(C.label)}</b><br>${s.added} added · ${s.edited} edited · ${s.removed} removed</div>`;
+  if (C.backendAt === 'current') h += `<div class="it muted">The backend is in another repository: drawn as it is now.</div>`;
+  if (s.stack) h += stackPanel(s.stack, link);
+  const group = (title, color, list, arrow) => list.length ? `<h4><i class="sw" style="background:${color}"></i>${title}</h4>`
+    + list.map((g) => `<div class="it">${link(g.brick)} <span class="muted">${arrow}</span> ${g.with.map(link).join(', ')}</div>`).join('') : '';
+  h += group(`attaches to ${s.attachments.length} existing`, 'var(--green)', s.attachments, '←');
+  h += group(`grafted into ${s.grafts.length} existing`, 'var(--amber)', s.grafts, '→');
+  if (s.rewires.length) h += `<h4><i class="sw" style="background:var(--violet)"></i>rewires ${s.rewires.length}</h4>`
+    + s.rewires.map((p) => `<div class="it">${link(p.from)} <span class="muted">→</span> ${link(p.to)}</div>`).join('');
+  const kept = C.pairs.filter((p) => p.class === 'kept' && p.newCalls.length);
+  if (kept.length) h += `<h4><i class="sw" style="background:var(--blue)"></i>new calls on kept wires</h4>`
+    + kept.map((p) => `<div class="it">${link(p.from)} <span class="muted">→</span> ${link(p.to)} <span class="muted">${esc(p.newCalls.join(', '))}</span></div>`).join('');
+  const added = Object.keys(C.bricks).filter((k) => C.bricks[k] === 'added');
+  const edited = Object.keys(C.bricks).filter((k) => C.bricks[k] === 'edited');
+  if (added.length) h += `<h4>added</h4>` + added.map((k) => `<div class="it">${link(k)}</div>`).join('');
+  if (edited.length) h += `<h4>edited</h4>` + edited.map((k) => {
+    const st = Object.entries(C.studs[k] || {}).filter(([, v]) => v !== 'unchanged');
+    return `<div class="it">${link(k)} <span class="muted">${st.length ? st.map(([n, v]) => esc(n) + (v === 'edited' ? '' : ' (' + v + ')')).join(', ') : 'constructor, fields or decorators'}</span></div>`;
+  }).join('');
+  if (C.removed.length) h += `<h4><i class="sw" style="background:var(--rose)"></i>removed</h4>` + C.removed.map((r) => `<div class="it">${link(r.id)} <span class="muted">${esc(r.pattern)}</span></div>`).join('');
+  if (s.detached) h += `<div class="it muted">${s.detached} connection${s.detached === 1 ? '' : 's'} detached</div>`;
+  cp.innerHTML = h;
+}
+$('chgform').addEventListener('submit', (e) => {
+  e.preventDefault();
+  // A new change starts on its map, not on whatever was focused before.
+  S.focus = null;
+  history.pushState(null, '', location.pathname);
+  loadChange($('chg').value, null, true).then(() => writeHash(true));
+});
+$('chgclear').addEventListener('click', () => {
+  S.change = null; S.spec = null; S.map = false;
+  $('chg').value = ''; $('chgclear').hidden = true; $('err').hidden = true;
+  writeHash(true);
+  load();
+});
+$('mapbtn').addEventListener('click', () => { S.map = true; writeHash(true); renderBench(); renderScrub(); });
+let scrubTimer = null;
+$('frame').addEventListener('input', (e) => {
+  clearTimeout(scrubTimer);
+  const f = e.target.value;
+  $('framelabel').textContent = f + '/' + (S.change.frames.length - 1) + ' ' + S.change.frames[f].subject;
+  scrubTimer = setTimeout(() => loadChange(S.spec, f, S.map).then(() => writeHash(false)), 150);
+});
+
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go) { e.stopPropagation(); focus(go.dataset.go); return; }
+  const li = e.target.closest('#list button[data-id]');
+  if (li) { focus(li.dataset.id); return; }
+  const br = e.target.closest('#bench .brick');
+  if (br && !e.target.closest('.stud, .sock')) { focus(br.dataset.id); return; }
+  const st = e.target.closest('#bench .stud');
+  if (st && st.dataset.id === S.focus) { const s = S.byId.get(st.dataset.id).studs[+st.dataset.stud]; flashLines(s.lines[0], s.lines[1]); return; }
+  if (st) { focus(st.dataset.id); return; }
+  const row = e.target.closest('#parts .row');
+  if (row) { const [a, z] = row.dataset.lines.split('-').map(Number); flashLines(a, z); }
+});
+$('bench').addEventListener('mouseover', (e) => {
+  const st = e.target.closest('.stud'), so = e.target.closest('.sock'), hit = e.target.closest('.hit'), lg = e.target.closest('[data-legend]');
+  if (st) hoverStud(st, e); else if (so) hoverSock(so, e); else if (hit) hoverEdge(hit, e); else if (lg) hoverLegend(lg, e);
+});
+$('bench').addEventListener('mousemove', (e) => { if (!tip.hidden) moveTip(e); });
+$('bench').addEventListener('mouseout', (e) => {
+  if (e.target.closest('.stud, .sock, .hit, [data-legend]')) { clearLit(); tip.hidden = true; }
+});
+// ------------------------------------------------------------------ column widths
+// Drag a sidebar's inner edge to resize it, or use the arrow keys on it;
+// double-click resets it. The widths are kept in this browser only, as a
+// convenience: a blocked or empty storage just means the default widths.
+const COLS = {
+  gl: { v: '--lw', pane: () => document.querySelector('main > aside.col:not(.insp)'), min: 180, dir: 1 },
+  gr: { v: '--rw', pane: () => document.querySelector('main > aside.insp'), min: 260, dir: -1 },
+};
+const COLS_KEY = 'metatron.workbench.columns';
+const paneWidth = (id) => COLS[id].pane().getBoundingClientRect().width;
+function setCol(id, px) {
+  const main = document.querySelector('main'), other = id === 'gl' ? 'gr' : 'gl';
+  const otherW = getComputedStyle($(other)).display === 'none' ? 0 : paneWidth(other);
+  const max = Math.max(COLS[id].min, main.clientWidth - otherW - 320);   // the bench keeps room
+  const w = Math.round(Math.min(Math.max(px, COLS[id].min), max));
+  main.style.setProperty(COLS[id].v, w + 'px');
+  $(id).setAttribute('aria-valuenow', String(w));
+}
+function saveCols() {
+  const st = document.querySelector('main').style;
+  try { localStorage.setItem(COLS_KEY, JSON.stringify({ gl: st.getPropertyValue('--lw'), gr: st.getPropertyValue('--rw') })); } catch { /* storage blocked */ }
+}
+(function loadCols() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(COLS_KEY) || 'null'); } catch { /* storage blocked */ }
+  for (const id of Object.keys(COLS)) if (saved && parseFloat(saved[id])) setCol(id, parseFloat(saved[id]));
+})();
+for (const id of Object.keys(COLS)) {
+  const g = $(id);
+  g.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    g.setPointerCapture(e.pointerId);
+    g.classList.add('drag'); document.body.classList.add('resizing');
+    const x0 = e.clientX, w0 = paneWidth(id);
+    const move = (ev) => setCol(id, w0 + COLS[id].dir * (ev.clientX - x0));
+    const up = () => {
+      g.classList.remove('drag'); document.body.classList.remove('resizing');
+      g.removeEventListener('pointermove', move); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up);
+      saveCols();
+    };
+    g.addEventListener('pointermove', move); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+  });
+  g.addEventListener('dblclick', () => { document.querySelector('main').style.removeProperty(COLS[id].v); saveCols(); });
+  g.addEventListener('keydown', (e) => {
+    const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+    if (!d) return;
+    e.preventDefault();
+    setCol(id, paneWidth(id) + COLS[id].dir * d);
+    saveCols();
+  });
+}
+// A narrower window: keep the bench its room.
+addEventListener('resize', () => {
+  const st = document.querySelector('main').style;
+  for (const id of Object.keys(COLS)) if (st.getPropertyValue(COLS[id].v)) setCol(id, paneWidth(id));
+});
+
+$('q').addEventListener('input', (e) => { S.q = e.target.value; renderList(); });
+$('mod').addEventListener('change', (e) => { S.mod = e.target.value; renderList(); });
+$('pats').addEventListener('change', (e) => {
+  const p = e.target.dataset.p;
+  if (e.target.checked) S.hidden.delete(p); else S.hidden.add(p);
+  renderList(); renderBench();
+});
+$('datapath').addEventListener('change', (e) => { S.dataPath = e.target.checked; renderBench(); });
+$('depth').addEventListener('click', (e) => {
+  const d = e.target.closest('button');
+  if (!d) return;
+  S.depth = +d.dataset.d;
+  $('depth').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === d)));
+  renderBench();
+});
+addEventListener('popstate', () => {
+  const h = readHash();
+  const frame = S.change ? String(S.change.frame) : null;
+  if ((h.change || null) !== S.spec || (S.change && (h.f || String(S.change.frames.length - 1)) !== frame)) { load(); return; }
+  if (S.change && h.map !== S.map) { S.map = h.map; renderBench(); renderScrub(); return; }
+  if (h.b && h.b !== S.focus) focus(h.b, true);
+});
+
+load().catch((e) => { $('bench').innerHTML = `<div class="empty">Could not load the model: ${esc(e.message)}</div>`; });
+
+// Live: the server re-scans on save and says so.
+try {
+  const ev = new EventSource('api/events');
+  ev.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    // In change mode only work in progress follows the working tree.
+    if (S.m && d.version > S.version && (!S.change || S.spec === 'wip')) load();
+    else if (S.m) { S.m.error = d.error || null; status(); }
+  };
+  ev.onerror = () => { $('live').innerHTML = '<span class="dot"></span>disconnected'; };
+} catch { /* no live updates */ }
+</script>
+</body>
+</html>
