@@ -51,6 +51,14 @@ pub struct Param {
     pub bounds: Vec<String>,
 }
 
+/// A named generic type parameter and every bound on it, from the angle
+/// brackets and the `where` clause together.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Generic {
+    pub name: String,
+    pub bounds: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FnSig {
     pub params: Vec<Param>,
@@ -58,6 +66,12 @@ pub struct FnSig {
     pub ret_paths: Vec<String>,
     /// Bounds from generics and `where` clauses, e.g. `S: ActivityStore`.
     pub generic_bounds: Vec<String>,
+    /// The same bounds keyed by the generic they constrain. `generic_bounds`
+    /// alone cannot say that `store: &S` is the parameter `S: ActivityStore`
+    /// arrives through, and the workbench (spec 11) draws that parameter as
+    /// a socket into the port.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generics: Vec<Generic>,
     pub is_async: bool,
     /// Whether the fn takes a `self` receiver. Spec 01 discarded the
     /// receiver; spec 02 needs it, because an associated function is not a
@@ -65,6 +79,9 @@ pub struct FnSig {
     /// otherwise report as an isolated component in every type that has one.
     #[serde(default)]
     pub takes_self: bool,
+    /// The receiver as written — `&self`, `&mut self`, `self` — for display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiver: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +129,32 @@ pub struct Symbol {
     /// said so.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub panics: Vec<(String, u32)>,
+    /// Method calls on a receiver whose type is *declared* rather than
+    /// inferred: `self.<field>.m()` and `<param>.m()`. Recorded raw, as
+    /// written; the workbench (spec 11) resolves them through the field's
+    /// or parameter's declared type. No `Call` edge is made from them, so
+    /// no rule reads them.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub recv_calls: Vec<RecvCall>,
     pub loc: u32,
+}
+
+/// One `recv.method()` call site. `recv` is `self.<field>`, a bare name, or
+/// `()` for a receiver that is itself a call (`Scanner::new(dir)?.run()`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RecvCall {
+    pub recv: String,
+    pub method: String,
+    pub line: u32,
+    /// A local's type, when its `let` writes it: `let x: Foo = ..`, or a
+    /// struct literal `let x = Foo { .. }`. A symbol id once resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ty: Option<String>,
+    /// The fn whose result the receiver is: `let x = Foo::new(..)?` or a
+    /// chained `Foo::new(..)?.m()`. Its declared return type is the
+    /// receiver's. A symbol id once resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callee: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +190,11 @@ pub struct Edge {
     pub file: String,
     pub line: u32,
     pub resolved: bool,
+    /// The field (`Field` edges) or parameter (`Sig` and `Bound` edges)
+    /// that names the target. Every field of a struct shares the struct's
+    /// line, so without this an edge cannot say which field it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +232,11 @@ pub struct ImplBinding {
     pub file: String,
     pub line: u32,
     pub is_test: bool,
+    /// The fns this `impl` block defines. A method in a trait impl is
+    /// written without `pub` and records as private; this is how a reader
+    /// tells it is as public as the trait.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub methods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
