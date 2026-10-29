@@ -180,36 +180,49 @@ fn dropping_the_port_pattern_drops_the_tools_confidence() {
 // -------------------------------------------------------------- arioch
 
 #[test]
-fn arioch_classifies_at_approximately_zero_and_says_so() {
-    // Zero is the correct answer and must not be suppressed, rounded away,
-    // or reported as a pass. arioch has no `domain/`, no `infra/`, no
-    // `application/`, and no trait anywhere.
+fn arioch_classifies_what_it_declares_and_says_so() {
+    // arioch's own metatron.toml maps each flat file to a layer, so its
+    // classifier sees nearly the whole crate when its own declaration is
+    // honoured. What the crate still does not have is any port: zero
+    // locally defined traits, and every rule whose premise needs a port
+    // unevaluable rather than passing. Both are statements, not failures —
+    // and the file-trawl patterns are arioch's declaration, not the tool
+    // flattering it.
     let Some((_, _, r)) = sibling("arioch") else {
         return;
     };
-    assert_eq!(r.coverage.ports, 0, "arioch has no locally defined trait");
+    assert_eq!(r.coverage.ports, 0, "arioch defines no locally owned trait");
     assert!(
-        r.coverage.ratio() < 0.05,
-        "expected ~0% coverage, got {:.1}%",
+        r.coverage.ratio() > 0.8,
+        "expected the self-declared layout to classify most symbols, got {:.1}%",
         r.coverage.ratio() * 100.0
     );
-    // Only `fn main` matches, and only because it is the composition root
-    // by position. Everything else is unmatched, with a file and line.
-    for name in ["App", "Registry", "Config"] {
-        let u = r
-            .unmatched
-            .iter()
-            .find(|u| u.name == name)
-            .unwrap_or_else(|| panic!("{name} should be reported unmatched"));
-        assert!(!u.file.is_empty() && u.line > 0);
+    // The bin's CLI plumbing (Cli, Command, …) has no declaration in
+    // arioch's config and stays unmatched — visible, with coordinates,
+    // not papered over by a pattern nobody wrote.
+    assert!(
+        !r.unmatched.is_empty(),
+        "the unclassified remainder should be visible"
+    );
+    for u in r.unmatched.iter().take(3) {
+        assert!(!u.file.is_empty() && u.line > 0, "{:#?} has no position", u);
+    }
+    // And the names say which declaration did the work.
+    for (id, pattern) in [
+        ("app::App", "app"),
+        ("config::Config", "config"),
+        ("registry::Registry", "registry"),
+    ] {
+        assert_eq!(r.pattern_of(id), Some(pattern), "{id} misclassified");
     }
 }
 
 #[test]
 fn the_composition_root_rule_does_not_swallow_the_file_it_names() {
     // A path-only rule on `main.rs` classifies everything that happens to
-    // sit there. In arioch that is 17 symbols, and it turns a 1% coverage
-    // figure into 20% — the tool flattering the code again.
+    // sit there. arioch's config used to match all 17 symbols of main.rs
+    // by kind — a 20% coverage jump built on one path. The classification
+    // above honours the repo, so the claim holds against it as it stands.
     let Some((_, _, r)) = sibling("arioch") else {
         return;
     };
