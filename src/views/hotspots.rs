@@ -116,7 +116,7 @@ pub fn build(s: &Scorecard) -> Result<Hotspots> {
     file_links.dedup();
 
     Ok(Hotspots {
-        generated_at: crate::baseline::now_iso(),
+        generated_at: crate::baseline::iso_from(s.now_secs),
         project: s.model.project.clone(),
         root: s.config.root.clone(),
         stats: stats(s),
