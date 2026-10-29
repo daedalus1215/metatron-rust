@@ -1,0 +1,23 @@
+# metatron-rust scans itself with the glossary as the base profile and
+# declares the pieces of its own flat `src/` layout that have a glossary
+# shape. Everything else stays unclassified on purpose: a tool that
+# measures distance from the glossary does not flatter its own layout.
+extends = "patterns-rust"
+
+# The clock port. `domain/ports/clock.rs` in a glossary-layout project —
+# here the traits live in src/ports.rs (domain/port.md: time is a port,
+# so tests are deterministic).
+[[add_pattern]]
+id = "port"
+layer = "domain"
+path = "ports.rs"
+symbol = { kind = "trait" }
+
+# The real impl — the only place in the crate `SystemTime::now` may be
+# named ([externs] time). The fake lives in a #[cfg(test)] block beside
+# the trait, where testing.md says one fake per port belongs.
+[[add_pattern]]
+id = "clock-adapter"
+layer = "infrastructure"
+path = "clock.rs"
+symbol = { kind = "struct", implements_port = true }
