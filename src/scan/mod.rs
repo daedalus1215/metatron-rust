@@ -13,7 +13,9 @@ use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use syn::spanned::Spanned;
-use types::{bounds_in_type, generic_bounds, path_string, paths_in_type, type_to_string};
+use types::{
+    bounds_in_type, generic_bounds, generic_params, path_string, paths_in_type, type_to_string,
+};
 
 const BUILTIN_CRATES: &[&str] = &["std", "core", "alloc", "proc_macro"];
 
@@ -24,12 +26,18 @@ struct RawEdge {
     file: String,
     line: u32,
     module: String,
+    /// The field or parameter that names the target, carried onto `Edge`.
+    via: Option<String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ModuleCtx {
     /// local name -> full crate-relative path, from `use` statements
     uses: HashMap<String, String>,
+    /// The base of each `use base::*` glob. Members named only through
+    /// the glob resolve against it at low confidence — never as externs
+    /// — which is what the `GlobImport` diagnostic already promises.
+    globs: Vec<String>,
 }
 
 /// One compilation unit: a root file, and the module path its symbols hang off.
@@ -118,10 +126,21 @@ pub struct Scanner {
     mod_ctx: HashMap<String, ModuleCtx>,
     files: usize,
     total_loc: u32,
+    /// Every parsed file's text, by its model path. Handed out only by
+    /// [`scan_with_text`], for the workbench's source panel (spec 11).
+    texts: BTreeMap<String, String>,
 }
 
 pub fn scan(dir: &Path) -> Result<Model> {
     Scanner::new(dir)?.run()
+}
+
+/// The model, and the text of every file it was built from, keyed by the
+/// path the model uses for it. The text is the one the scan parsed, not a
+/// second read of the disk, so a source panel drawn from it always matches
+/// the model beside it — even mid-save.
+pub fn scan_with_text(dir: &Path) -> Result<(Model, BTreeMap<String, String>)> {
+    Scanner::new(dir)?.run_with_text()
 }
 
 impl Scanner {
@@ -151,6 +170,7 @@ impl Scanner {
             mod_ctx: HashMap::new(),
             files: 0,
             total_loc: 0,
+            texts: BTreeMap::new(),
         })
     }
 
@@ -408,7 +428,11 @@ impl Scanner {
         );
     }
 
-    pub fn run(mut self) -> Result<Model> {
+    pub fn run(self) -> Result<Model> {
+        self.run_with_text().map(|(m, _)| m)
+    }
+
+    pub fn run_with_text(mut self) -> Result<(Model, BTreeMap<String, String>)> {
         let targets = self.targets();
         if targets.is_empty() {
             // A virtual manifest: a workspace root with no crate of its own.
@@ -474,7 +498,8 @@ impl Scanner {
                 .collect(),
         };
 
-        Ok(Model {
+        let texts = std::mem::take(&mut self.texts);
+        let model = Model {
             project: self.project,
             root: self.root.display().to_string(),
             generated_at: None,
@@ -487,7 +512,8 @@ impl Scanner {
             macro_tainted: self.macro_tainted.into_iter().collect(),
             foreign_field_reads: self.foreign_field_reads.into_iter().collect(),
             diagnostics: self.diagnostics,
-        })
+        };
+        Ok((model, texts))
     }
 
     // ---------------------------------------------------------- module tree
@@ -516,6 +542,7 @@ impl Scanner {
         };
 
         self.files += 1;
+        self.texts.insert(rel.clone(), src.clone());
         let loc = src.lines().count() as u32;
         self.total_loc += loc;
         let before = self.symbols.len();
@@ -595,12 +622,21 @@ impl Scanner {
                         self_fields: vec![],
                         self_calls: vec![],
                         panics: vec![],
+                        recv_calls: vec![],
                         loc: span_loc(s.span()),
                     });
                     let id = join(mod_id, &s.ident.to_string());
                     for f in &fields {
                         for p in &f.ty_paths {
-                            self.edge(&id, p, EdgeKind::Field, rel, s.span(), mod_id);
+                            self.edge(
+                                &id,
+                                p,
+                                EdgeKind::Field,
+                                rel,
+                                s.span(),
+                                mod_id,
+                                Some(&f.name),
+                            );
                         }
                     }
                 }
@@ -617,7 +653,15 @@ impl Scanner {
                     }
                     for f in &fields {
                         for p in &f.ty_paths {
-                            self.edge(&id, p, EdgeKind::Field, rel, e.span(), mod_id);
+                            self.edge(
+                                &id,
+                                p,
+                                EdgeKind::Field,
+                                rel,
+                                e.span(),
+                                mod_id,
+                                Some(&f.name),
+                            );
                         }
                     }
                     self.push(Symbol {
@@ -641,6 +685,7 @@ impl Scanner {
                         self_fields: vec![],
                         self_calls: vec![],
                         panics: vec![],
+                        recv_calls: vec![],
                         loc: span_loc(e.span()),
                     });
                 }
@@ -667,6 +712,7 @@ impl Scanner {
                         self_fields: vec![],
                         self_calls: vec![],
                         panics: vec![],
+                        recv_calls: vec![],
                         loc: span_loc(t.span()),
                     });
                     for ti in &t.items {
@@ -695,6 +741,7 @@ impl Scanner {
                                 self_fields: vec![],
                                 self_calls: vec![],
                                 panics: vec![],
+                                recv_calls: vec![],
                                 loc: span_loc(f.span()),
                             });
                         }
@@ -722,6 +769,7 @@ impl Scanner {
                         self_fields: vec![],
                         self_calls: vec![],
                         panics: vec![],
+                        recv_calls: vec![],
                         loc: span_loc(u.span()),
                     });
                 }
@@ -746,6 +794,7 @@ impl Scanner {
                     self_fields: vec![],
                     self_calls: vec![],
                     panics: vec![],
+                    recv_calls: vec![],
                     loc: span_loc(t.span()),
                 }),
                 syn::Item::Fn(f) => {
@@ -763,6 +812,7 @@ impl Scanner {
                             file: rel.into(),
                             line: *line,
                             module: mod_id.into(),
+                            via: None,
                         });
                     }
                     self.push(Symbol {
@@ -790,6 +840,7 @@ impl Scanner {
                         self_fields: vec![],
                         self_calls: vec![],
                         panics: scan.panics,
+                        recv_calls: scan.recv_calls,
                         loc: span_loc(f.span()),
                     });
                 }
@@ -824,6 +875,7 @@ impl Scanner {
                     self_fields: vec![],
                     self_calls: vec![],
                     panics: vec![],
+                    recv_calls: vec![],
                     loc: span_loc(s.span()),
                 }),
                 syn::Item::Const(c) => self.push(Symbol {
@@ -847,6 +899,7 @@ impl Scanner {
                     self_fields: vec![],
                     self_calls: vec![],
                     panics: vec![],
+                    recv_calls: vec![],
                     loc: span_loc(c.span()),
                 }),
                 syn::Item::Macro(m) => {
@@ -885,6 +938,7 @@ impl Scanner {
                 file: rel.into(),
                 line: i.span().start().line as u32,
                 module: mod_id.into(),
+                via: None,
             });
             self.impls.push(ImplBinding {
                 module: mod_id.into(),
@@ -895,6 +949,14 @@ impl Scanner {
                 file: rel.into(),
                 line: i.span().start().line as u32,
                 is_test,
+                methods: i
+                    .items
+                    .iter()
+                    .filter_map(|it| match it {
+                        syn::ImplItem::Fn(f) => Some(f.sig.ident.to_string()),
+                        _ => None,
+                    })
+                    .collect(),
             });
         }
 
@@ -929,6 +991,7 @@ impl Scanner {
                         file: rel.into(),
                         line: *line,
                         module: mod_id.into(),
+                        via: None,
                     });
                 }
                 self.push(Symbol {
@@ -952,6 +1015,7 @@ impl Scanner {
                     self_fields: scan.self_fields,
                     self_calls: scan.self_calls,
                     panics: scan.panics,
+                    recv_calls: scan.recv_calls,
                     loc: span_loc(f.span()),
                 });
             }
@@ -960,8 +1024,10 @@ impl Scanner {
 
     fn use_item(&mut self, u: &syn::ItemUse, mod_id: &str, rel: &str, _in_test: bool) {
         let line = u.span().start().line as u32;
+        let mut globs: Vec<String> = Vec::new();
         let mut leaves = Vec::new();
         flatten_use(&u.tree, String::new(), &mut leaves, &mut |glob| {
+            globs.push(glob.to_string());
             self.diagnostics.push(Diagnostic {
                 kind: DiagnosticKind::GlobImport,
                 file: rel.into(),
@@ -970,6 +1036,7 @@ impl Scanner {
             });
         });
         let ctx = self.mod_ctx.entry(mod_id.to_string()).or_default();
+        ctx.globs.extend(globs);
         for (path, alias) in &leaves {
             ctx.uses.insert(alias.clone(), path.clone());
         }
@@ -985,6 +1052,7 @@ impl Scanner {
                 file: rel.into(),
                 line,
                 module: mod_id.into(),
+                via: None,
             });
         }
     }
@@ -999,22 +1067,39 @@ impl Scanner {
     ) {
         for p in &sig.params {
             for b in &p.bounds {
-                self.edge(from, b, EdgeKind::Bound, rel, span, mod_id);
+                self.edge(from, b, EdgeKind::Bound, rel, span, mod_id, Some(&p.name));
             }
             for t in &p.ty_paths {
                 if !p.bounds.contains(t) {
-                    self.edge(from, t, EdgeKind::Sig, rel, span, mod_id);
+                    self.edge(from, t, EdgeKind::Sig, rel, span, mod_id, Some(&p.name));
                 }
             }
         }
+        // `->` marks the return type, so a reader can tell what a call to
+        // this fn hands back (spec 11) from what it is handed.
         for t in &sig.ret_paths {
-            self.edge(from, t, EdgeKind::Sig, rel, span, mod_id);
+            self.edge(from, t, EdgeKind::Sig, rel, span, mod_id, Some("->"));
         }
         for b in &sig.generic_bounds {
-            self.edge(from, b, EdgeKind::Bound, rel, span, mod_id);
+            // `fn f<S: Store>(store: &S)`: the bound belongs to `S`, and
+            // `store` is the parameter it arrives through. A bound on a
+            // generic no parameter names (a return type, a closure's) has no
+            // parameter to name.
+            let via = sig
+                .generics
+                .iter()
+                .filter(|g| g.bounds.contains(b))
+                .find_map(|g| {
+                    sig.params
+                        .iter()
+                        .find(|p| p.ty_paths.iter().any(|t| t == &g.name))
+                })
+                .map(|p| p.name.as_str());
+            self.edge(from, b, EdgeKind::Bound, rel, span, mod_id, via);
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn edge(
         &mut self,
         from: &str,
@@ -1023,6 +1108,7 @@ impl Scanner {
         rel: &str,
         span: proc_macro2::Span,
         mod_id: &str,
+        via: Option<&str>,
     ) {
         self.raw_edges.push(RawEdge {
             from: from.into(),
@@ -1031,6 +1117,7 @@ impl Scanner {
             file: rel.into(),
             line: span.start().line as u32,
             module: mod_id.into(),
+            via: via.map(str::to_string),
         });
     }
 
@@ -1090,6 +1177,8 @@ impl Scanner {
             "PathBuf",
             "Path",
             "Duration",
+            "AsRef",
+            "AsMut",
             "Default",
             "Clone",
             "Copy",
@@ -1127,14 +1216,14 @@ impl Scanner {
         .collect();
 
         for re in &self.raw_edges {
-            let uses = self
+            let ctx = self
                 .mod_ctx
                 .get(&re.module)
-                .map(|c| &c.uses)
                 .cloned()
                 .unwrap_or_default();
+            let root = self.mod_ctx.get("").cloned().unwrap_or_default();
 
-            match resolve_path(&re.raw, &re.module, &uses, &index, &mods, &self_crate) {
+            match resolve_path(&re.raw, &re.module, &ctx, &root, &index, &mods, &self_crate) {
                 Res::Local(id) => edges.push(Edge {
                     from: re.from.clone(),
                     to: EdgeTarget::Local { id },
@@ -1142,6 +1231,7 @@ impl Scanner {
                     file: re.file.clone(),
                     line: re.line,
                     resolved: true,
+                    via: re.via.clone(),
                 }),
                 Res::Path(full) => {
                     let head = full.split("::").next().unwrap_or("").to_string();
@@ -1159,6 +1249,7 @@ impl Scanner {
                             file: re.file.clone(),
                             line: re.line,
                             resolved: true,
+                            via: re.via.clone(),
                         });
                     } else if is_architectural(&full, &ignore) {
                         // `module` is empty for an item at the crate root, and
@@ -1187,12 +1278,14 @@ impl Scanner {
         for b in &mut self.impls {
             let uses = ctx
                 .get(&b.module)
-                .map(|c| c.uses.clone())
+                .cloned()
                 .unwrap_or_default();
+            let root = ctx.get("").cloned().unwrap_or_default();
             b.trait_id = match resolve_path(
                 &b.trait_path,
                 &b.module,
                 &uses,
+                &root,
                 &index,
                 &mods_c,
                 &self_crate,
@@ -1209,6 +1302,39 @@ impl Scanner {
             }
         }
         self.mod_ctx = ctx;
+
+        // A receiver's declared type or source fn, written as a path in the
+        // body, resolved the way every edge is. One that names nothing in the
+        // crate is dropped: the call is then a library call, or unread.
+        let root = self.mod_ctx.get("").cloned().unwrap_or_default();
+        for sym in &mut self.symbols {
+            if sym.recv_calls.is_empty() {
+                continue;
+            }
+            let ctx = self.mod_ctx.get(&sym.module).cloned().unwrap_or_default();
+            // `Self { .. }` and `Self::new()` name the type the impl is for,
+            // which the resolver does not know: it ignores `Self` everywhere.
+            let parent = sym.parent.clone();
+            let local = |raw: &str| {
+                if let Some(p) = &parent {
+                    if raw == "Self" {
+                        return Some(p.clone());
+                    }
+                    if let Some(rest) = raw.strip_prefix("Self::") {
+                        let id = format!("{p}::{rest}");
+                        return index.contains(&id).then_some(id);
+                    }
+                }
+                match resolve_path(raw, &sym.module, &ctx, &root, &index, &mods, &self_crate) {
+                    Res::Local(id) => Some(id),
+                    Res::Path(_) => None,
+                }
+            };
+            for rc in &mut sym.recv_calls {
+                rc.ty = rc.ty.as_deref().and_then(local);
+                rc.callee = rc.callee.as_deref().and_then(local);
+            }
+        }
 
         self.diagnostics.extend(unresolved);
         (edges, externs)
@@ -1287,7 +1413,8 @@ pub enum Res {
 fn resolve_path(
     raw: &str,
     module: &str,
-    uses: &HashMap<String, String>,
+    ctx: &ModuleCtx,
+    root: &ModuleCtx,
     index: &BTreeSet<String>,
     mods: &BTreeSet<String>,
     self_crate: &str,
@@ -1312,19 +1439,8 @@ fn resolve_path(
         // that is perfectly well resolvable.
         _ if head == self_crate => rest(1),
         _ => {
-            if let Some(mapped) = uses.get(head) {
-                let mut local = mapped.trim_start_matches("crate::").to_string();
-                // `use dual::greet_all` records `greet_all -> dual::greet_all`.
-                // The crate's own name is not a module, so the prefix has to
-                // come off before the path can be looked up in the crate.
-                if let Some(rest) = local
-                    .strip_prefix(self_crate)
-                    .and_then(|r| r.strip_prefix("::"))
-                {
-                    local = rest.to_string();
-                } else if local == self_crate {
-                    local = String::new();
-                }
+            if let Some(mapped) = ctx.uses.get(head) {
+                let local = absolute_use_path(mapped, module, self_crate, mods);
                 let expanded = if segs.len() == 1 {
                     local
                 } else {
@@ -1332,9 +1448,27 @@ fn resolve_path(
                 };
                 match lookup(&expanded, index, mods) {
                     Some(id) => return Res::Local(id),
-                    // Not local, so the `use` pointed outside the crate. The
-                    // expanded path carries the real head (`ratatui`, `std`).
-                    None => return Res::Path(expanded),
+                    // Not local under this crate's root. The alias could
+                    // still name an item of a *sibling* module — `use
+                    // types::path_string` inside `scan` names
+                    // `scan::types::path_string`, by the same rule Rust
+                    // resolves the `use` statement itself. Without this the
+                    // expansion carries a phantom `types` head and the edge
+                    // becomes a confident wrong diagnostic.
+                    None => {
+                        if let Some(id) = lookup_min(
+                            &join(module, &expanded),
+                            index,
+                            mods,
+                            module.split("::").count() + 1,
+                        ) {
+                            return Res::Local(id);
+                        }
+                        // Not local, so the `use` pointed outside the
+                        // crate. The expanded path carries the real head
+                        // (`ratatui`, `std`).
+                        return Res::Path(expanded);
+                    }
                 }
             }
             // Try the path as a sibling of the current module. The walk-back
@@ -1351,14 +1485,131 @@ fn resolve_path(
             if let Some(id) = lookup_min(&local, index, mods, floor) {
                 return Res::Local(id);
             }
+            // Glob members have no alias to follow — `use crate::model::*`
+            // promises nothing per name, and the GlobImport diagnostic has
+            // already been written for it. Compose each glob base with the
+            // raw path and look the whole thing up; a miss is allowed to
+            // stay unknown, but a hit is local by the crate's own module
+            // graph.
+            for g in &ctx.globs {
+                let base = absolute_use_path(g, module, self_crate, mods);
+                if let Some(id) = lookup(&join(&base, raw), index, mods) {
+                    return Res::Local(id);
+                }
+            }
             raw.to_string()
         }
     };
+
+    // Last resort, over every per-module attempt: what the crate root
+    // exports. `pub use model::Model` in the lib root makes
+    // `metatron::Model` — used by tests and other crates — name
+    // `model::Model`. The root surface is keyed by the *leaf* head, which
+    // for a fully-qualified `metatron::Scorecard` is the segment after the
+    // crate's name.
+    let root_head = if head == self_crate {
+        segs.get(1).copied().unwrap_or("")
+    } else {
+        head
+    };
+    if !root_head.is_empty() {
+        if let Some(mapped) = root.uses.get(root_head) {
+            let local = absolute_use_path(mapped, "", self_crate, mods);
+            let expanded = if segs.len() <= 2 {
+                local
+            } else {
+                join(&local, &rest(2))
+            };
+            if let Some(id) = lookup(&expanded, index, mods) {
+                return Res::Local(id);
+            }
+        }
+    }
+    for g in &root.globs {
+        let base = absolute_use_path(g, "", self_crate, mods);
+        if let Some(id) = lookup(&join(&base, raw), index, mods) {
+            return Res::Local(id);
+        }
+    }
 
     match lookup(&candidate, index, mods) {
         Some(id) => Res::Local(id),
         None => Res::Path(candidate),
     }
+}
+
+/// A path recorded in a `use` statement — an alias's value or a glob base —
+/// starts by the same rule the statement itself does: `crate`, `self`,
+/// `super`, the crate's own name, or a module relative to the current one.
+/// Apply that rule once; the result is a crate-relative candidate.
+fn absolute_use_path(
+    path: &str,
+    module: &str,
+    self_crate: &str,
+    mods: &BTreeSet<String>,
+) -> String {
+    let mut rest = path;
+    let mut base = module.to_string();
+    // `crate`/`self`/`super`/crate-name fix the base as they are consumed;
+    // only a head with no keyword before it is judged by the
+    // module-relative rule.
+    let mut anchored = false;
+    loop {
+        if let Some(r) = rest.strip_prefix("crate::") {
+            rest = r;
+            base.clear();
+            anchored = true;
+        } else if rest == "crate" {
+            rest = "";
+            base.clear();
+            anchored = true;
+        } else if let Some(r) = rest.strip_prefix("self::") {
+            rest = r;
+            base = module.to_string();
+            anchored = true;
+        } else if rest == "self" {
+            rest = "";
+            base = module.to_string();
+            anchored = true;
+        } else if let Some(r) = rest.strip_prefix("super::") {
+            rest = r;
+            base = parent_of(module).unwrap_or_default();
+            anchored = true;
+        } else if rest == "super" {
+            rest = "";
+            base = parent_of(module).unwrap_or_default();
+            anchored = true;
+        } else if rest == self_crate {
+            rest = "";
+            base.clear();
+            anchored = true;
+        } else if let Some(segs) = rest
+            .strip_prefix(self_crate)
+            .and_then(|r| r.strip_prefix("::"))
+        {
+            rest = segs;
+            base.clear();
+            anchored = true;
+        } else {
+            break;
+        }
+        if rest.is_empty() {
+            return base;
+        }
+    }
+    if anchored {
+        // Already relative to `base`; no further interpretation.
+        return join(&base, rest);
+    }
+    // A relative head: `types::path_string` written inside module `scan`
+    // means `scan::types::path_string` — but only when the head really is
+    // a module of this crate. Anything else stays as written and is
+    // judged outside.
+    let head = rest.split("::").next().unwrap_or("");
+    if !head.is_empty() && mods.contains(&join(&base, head)) {
+        return join(&base, rest);
+    }
+    rest.to_string()
 }
 
 /// Exact hit, else walk back up the path: `app::App::new` is the type `app::App`.
@@ -1471,9 +1722,13 @@ fn fields_of(f: &syn::Fields) -> Vec<Field> {
 fn sig_of(s: &syn::Signature) -> FnSig {
     let mut params = Vec::new();
     let mut takes_self = false;
+    let mut receiver = None;
     for a in &s.inputs {
         match a {
-            syn::FnArg::Receiver(_) => takes_self = true,
+            syn::FnArg::Receiver(r) => {
+                takes_self = true;
+                receiver = Some(receiver_string(r));
+            }
             syn::FnArg::Typed(t) => params.push(Param {
                 name: match &*t.pat {
                     syn::Pat::Ident(i) => i.ident.to_string(),
@@ -1494,9 +1749,30 @@ fn sig_of(s: &syn::Signature) -> FnSig {
         ret,
         ret_paths,
         generic_bounds: generic_bounds(&s.generics),
+        generics: generic_params(&s.generics),
         is_async: s.asyncness.is_some(),
         takes_self,
+        receiver,
     }
+}
+
+/// `&self`, `&mut self`, `&'a self`, `self`, `mut self`, or `self: Box<Self>`.
+fn receiver_string(r: &syn::Receiver) -> String {
+    if r.colon_token.is_some() {
+        return format!("self: {}", type_to_string(&r.ty));
+    }
+    let mut out = String::new();
+    if let Some((_, lt)) = &r.reference {
+        out.push('&');
+        if let Some(lt) = lt {
+            out.push_str(&format!("'{} ", lt.ident));
+        }
+    }
+    if r.mutability.is_some() {
+        out.push_str("mut ");
+    }
+    out.push_str("self");
+    out
 }
 
 fn vis_of(v: &syn::Visibility) -> Visibility {
