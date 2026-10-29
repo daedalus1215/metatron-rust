@@ -295,7 +295,7 @@ pub fn build(s: &Scorecard) -> Layers {
         + 12.0;
 
     Layers {
-        generated_at: crate::baseline::now_iso(),
+        generated_at: crate::baseline::iso_from(s.now_secs),
         stats: stats(s),
         tiers: tiers(s),
         extent,
