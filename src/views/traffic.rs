@@ -18,7 +18,8 @@
 //! resolved is reported as a diagnostic and not drawn** — metatron's rule
 //! that an unparseable route is reported rather than guessed at.
 
-use crate::model::{EdgeKind, EdgeTarget};
+use crate::classify::Classified;
+use crate::model::{EdgeKind, EdgeTarget, Symbol};
 use crate::scorecard::Scorecard;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -65,24 +66,35 @@ pub struct Traffic {
     pub diagnostics: Vec<String>,
 }
 
-/// Entry points: a classified command-handler, or a `cmd_*` / `handle_*`
-/// free function in a crate that has no classification yet.
+/// Whether a symbol is an inbound signal, and of which kind: `cli` or
+/// `tui`, metatron's HTTP verb slot. A classified command-handler, or a
+/// `cmd_*` / `handle_*_key` fn in a crate that has no classification yet.
+///
+/// One definition, read by this view and by the workbench, so a stud the
+/// workbench marks as an entry is one this view traces.
+pub fn entry_verb(sym: &Symbol, classified: &Classified) -> Option<&'static str> {
+    if sym.is_test {
+        return None;
+    }
+    let is_handler = classified.pattern_of(&sym.id) == Some("command-handler");
+    let by_name = sym.name.starts_with("cmd_")
+        || (sym.name.starts_with("handle_") && sym.name.ends_with("_key"));
+    if !is_handler && !by_name {
+        return None;
+    }
+    Some(if sym.name.starts_with("cmd_") {
+        "cli"
+    } else {
+        "tui"
+    })
+}
+
+/// Entry points: see [`entry_verb`].
 pub fn entries(s: &Scorecard) -> Vec<Entry> {
     let mut out = Vec::new();
     for sym in &s.model.symbols {
-        if sym.is_test {
+        let Some(verb) = entry_verb(sym, &s.classified) else {
             continue;
-        }
-        let classified = s.classified.pattern_of(&sym.id) == Some("command-handler");
-        let by_name = sym.name.starts_with("cmd_")
-            || (sym.name.starts_with("handle_") && sym.name.ends_with("_key"));
-        if !classified && !by_name {
-            continue;
-        }
-        let verb = if sym.name.starts_with("cmd_") {
-            "cli"
-        } else {
-            "tui"
         };
         let sig = sym.sig.as_ref();
         let params: Vec<String> = sig
@@ -231,7 +243,7 @@ pub fn build(s: &Scorecard) -> Traffic {
         })
         .collect();
     Traffic {
-        generated_at: crate::baseline::now_iso(),
+        generated_at: crate::baseline::iso_from(s.now_secs),
         // Unresolved traces are reported, not drawn.
         endpoints: endpoints
             .into_iter()
