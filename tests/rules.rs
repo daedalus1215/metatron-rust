@@ -257,10 +257,20 @@ fn a_rule_whose_premise_is_absent_is_never_a_pass() {
 
 #[test]
 fn mixed_layer_is_unevaluable_when_nothing_is_classified_to_compare() {
-    // arioch classifies one symbol. A pass here would claim the modules
-    // were examined.
-    let Some(r) = sibling("arioch") else { return };
+    // A crate whose pattern file matches nothing has no module with two
+    // classified symbols to place side by side. Reporting a pass here
+    // would claim the modules were examined when they were never seen.
+    let r = fixture("dual");
     assert_eq!(rule(&r, "mixed-layer-module").status, Status::Unevaluable);
+}
+
+#[test]
+fn mixed_layer_is_upheld_when_each_module_holds_one_layer() {
+    // arioch's own config classifies every file to exactly one layer, so
+    // the rule has real premises in every module and reports that none
+    // spans two — 67 classified symbols compared, not a vacuous pass.
+    let Some(r) = sibling("arioch") else { return };
+    assert_eq!(rule(&r, "mixed-layer-module").status, Status::Pass);
 }
 
 // ------------------------------------------------------------ arioch
