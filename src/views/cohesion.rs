@@ -134,7 +134,7 @@ pub fn build(s: &Scorecard) -> Cohesion {
         .collect();
 
     Cohesion {
-        generated_at: crate::baseline::now_iso(),
+        generated_at: crate::baseline::iso_from(s.now_secs),
         project: s.model.project.clone(),
         types,
         mixed_concern: s
