@@ -80,6 +80,16 @@ enum Cmd {
         #[arg(long)]
         update: bool,
     },
+    /// The workbench: a local page to pick up a type, trait or module and
+    /// see what it is snapped into. Re-scans on save.
+    Serve {
+        path: Option<PathBuf>,
+        #[arg(long, default_value_t = 4477)]
+        port: u16,
+        /// Scan once and never again.
+        #[arg(long)]
+        no_watch: bool,
+    },
     /// LCOM4 and decomposition proposals. Advisory: never gates.
     Cohesion {
         path: Option<PathBuf>,
@@ -194,6 +204,14 @@ fn run() -> Result<u8> {
             let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
             return cohesion(&dir, all, json);
         }
+        Some(Cmd::Serve {
+            path,
+            port,
+            no_watch,
+        }) => {
+            let dir = path.or(cli.path).unwrap_or_else(|| PathBuf::from("."));
+            return serve(&dir, port, !no_watch);
+        }
         None => (cli.path, false),
     };
     let dir = path.unwrap_or_else(|| PathBuf::from("."));
@@ -245,6 +263,23 @@ fn run() -> Result<u8> {
             c.coverage.ratio() * 100.0,
             c.coverage.ports
         );
+        // Spec 11: the workbench's own coverage, so an unplaced socket is a
+        // number before it is a gap on the bench.
+        let w = metatron::views::workbench::wiring(&model, &cfg, &c);
+        let m = &w.meta;
+        println!(
+            "  wiring {}/{} sockets placed · {} port · {} external · {} unresolved",
+            m.resolved, m.sockets, m.port, m.external, m.unresolved
+        );
+        println!(
+            "  studs {} · {} by a brick · {} through a port · {} entry · {} foreign trait · {} unseen",
+            m.studs.total,
+            m.studs.brick,
+            m.studs.port,
+            m.studs.route,
+            m.studs.framework,
+            m.studs.unseen
+        );
         print_gaps(&c.coverage, c.unmatched.len(), false);
     }
 
@@ -281,6 +316,41 @@ fn run() -> Result<u8> {
 
     println!();
     println!("  -> {}", out.join("model.json").display());
+    Ok(0)
+}
+
+fn serve(dir: &Path, port: u16, watch: bool) -> Result<u8> {
+    let opts = metatron::serve::Options {
+        port,
+        watch,
+        ..Default::default()
+    };
+    // The composition root binds the clock, as it does for every command.
+    let wb = metatron::serve::Workbench::start(dir, opts, metatron::clock::SystemClock, |l| {
+        println!("{l}")
+    })?;
+    let m = wb.meta();
+    println!("metatron workbench");
+    println!();
+    println!(
+        "  {} bricks · {}/{} sockets placed · {} unresolved · {} unseen studs",
+        wb.bricks(),
+        m.resolved,
+        m.sockets,
+        m.unresolved,
+        m.studs.unseen
+    );
+    println!(
+        "  {}",
+        if watch {
+            "watching: re-scans when a .rs file, Cargo.toml or metatron.toml changes"
+        } else {
+            "not watching: the model is static"
+        }
+    );
+    println!();
+    println!("  -> {}", wb.url);
+    wb.wait();
     Ok(0)
 }
 
@@ -487,7 +557,7 @@ fn check(
 ) -> Result<u8> {
     use metatron::rules::{Kind, Status, Tone};
 
-    let s = metatron::scorecard::build(dir)?;
+    let s = metatron::scorecard::build(dir, &metatron::clock::SystemClock)?;
 
     // Coverage is the ceiling on what any rule here can see: a rule cannot
     // fire on a symbol the model never matched. A floor turns that from a
@@ -866,9 +936,14 @@ fn locate(s: &metatron::Scorecard, v: &metatron::baseline::Entry) -> String {
 }
 
 fn baseline_cmd(dir: &Path, write: bool) -> Result<u8> {
-    let s = metatron::scorecard::build(dir)?;
-    let (next, out) =
-        metatron::baseline::update(&s.report, &s.baseline, &s.model.project, s.coverage());
+    let s = metatron::scorecard::build(dir, &metatron::clock::SystemClock)?;
+    let (next, out) = metatron::baseline::update(
+        &s.report,
+        &s.baseline,
+        &s.model.project,
+        s.coverage(),
+        s.now_secs,
+    );
 
     println!("metatron baseline · {}", s.model.project);
     println!();
@@ -918,7 +993,7 @@ fn baseline_cmd(dir: &Path, write: bool) -> Result<u8> {
 }
 
 fn views(dir: &Path, name: Option<&str>, out: Option<PathBuf>) -> Result<u8> {
-    let s = metatron::scorecard::build(dir)?;
+    let s = metatron::scorecard::build(dir, &metatron::clock::SystemClock)?;
     let out = out.unwrap_or_else(|| dir.join(".metatron/views"));
 
     if let Some(n) = name {
