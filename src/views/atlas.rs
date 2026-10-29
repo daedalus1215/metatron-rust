@@ -177,7 +177,7 @@ pub fn build(s: &Scorecard) -> Atlas {
         .collect();
 
     Atlas {
-        generated_at: crate::baseline::now_iso(),
+        generated_at: crate::baseline::iso_from(s.now_secs),
         stats: stats(s),
         tiers: tiers(s),
         nodes,
