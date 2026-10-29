@@ -109,6 +109,16 @@ Every detail carried over deliberately:
   cannot affect the exit code under any flag. `metatron baseline` prints which
   rules were excluded, so a rule cannot sit outside the gate unnoticed.
 
+### Time is a port, not a call
+
+Every date the tool writes — `generated_at`, the `[[progress]]` entry's `at` —
+derives from one number: `Scorecard.now_secs`, read once per run through the
+`Clock` port (`src/ports.rs`; the adapter `SystemClock` is bound in
+`main.rs`, the only place the crate names `SystemTime`). This is spec 05
+walking the tool's own `time-injected` rule: the ratchet that gates on dates
+is itself deterministic, and tests fix time with a fake instead of asserting
+against the system clock.
+
 ### Progress, not just regression
 
 The one genuine addition to metatron's design. `--update` records the count at
