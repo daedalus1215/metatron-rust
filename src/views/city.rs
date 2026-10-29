@@ -236,7 +236,7 @@ pub fn build(s: &Scorecard) -> City {
     modules.sort_by(|a, b| b.files.cmp(&a.files).then(a.id.cmp(&b.id)));
 
     City {
-        generated_at: crate::baseline::now_iso(),
+        generated_at: crate::baseline::iso_from(s.now_secs),
         stats: stats(s),
         tiers: tiers(s),
         modules,
