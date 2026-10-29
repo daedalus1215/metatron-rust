@@ -7,6 +7,7 @@
 //! goes quietly wrong.
 
 use super::types::path_string;
+use crate::model::RecvCall;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
@@ -45,6 +46,65 @@ pub struct BodyScan {
     /// LCOM input; it is what stops spec 02 calling a `pub` field dead
     /// because its own type never touches it through `self`.
     pub foreign_fields: Vec<String>,
+    /// `self.<field>.m()`, `<name>.m()` and `<call>.m()`, as written. The
+    /// receiver's type is not looked up here: the workbench resolves it from
+    /// what is *declared* — the field's or parameter's type, the `let` that
+    /// names a local's type, or the return type of the fn a local came from
+    /// — and drops anything else (spec 11).
+    pub recv_calls: Vec<RecvCall>,
+    /// Each local's binding so far, in visit order: the raw type path or the
+    /// raw callee path its `let` declares. A `let` that declares neither
+    /// removes the name, so a shadowing binding never inherits a type.
+    locals: std::collections::HashMap<String, Binding>,
+}
+
+#[derive(Clone)]
+enum Binding {
+    Type(String),
+    Call(String),
+}
+
+impl BodyScan {
+    fn recv(&mut self, recv: String, method: String, line: u32) {
+        let (ty, callee) = match self.locals.get(&recv) {
+            Some(Binding::Type(t)) => (Some(t.clone()), None),
+            Some(Binding::Call(c)) => (None, Some(c.clone())),
+            None => (None, None),
+        };
+        self.recv_calls.push(RecvCall {
+            recv,
+            method,
+            line,
+            ty,
+            callee,
+        });
+    }
+}
+
+/// Through `?`, `.await`, `.unwrap()`, `.expect(..)`, `&`, `*` and parens to
+/// the expression that produces the value.
+fn strip(mut e: &Expr) -> &Expr {
+    loop {
+        e = match e {
+            Expr::Try(t) => &t.expr,
+            Expr::Await(a) => &a.base,
+            Expr::Paren(p) => &p.expr,
+            Expr::Reference(r) => &r.expr,
+            Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => &u.expr,
+            Expr::MethodCall(m) if m.method == "unwrap" || m.method == "expect" => &m.receiver,
+            _ => return e,
+        }
+    }
+}
+
+/// `Foo` from `Foo`, `&Foo`, `&mut Foo<T>`; nothing for any other shape.
+fn type_path(t: &syn::Type) -> Option<String> {
+    match t {
+        syn::Type::Path(p) if p.qself.is_none() => Some(path_string(&p.path)),
+        syn::Type::Reference(r) => type_path(&r.elem),
+        syn::Type::Paren(p) => type_path(&p.elem),
+        _ => None,
+    }
 }
 
 impl BodyScan {
@@ -65,6 +125,8 @@ impl BodyScan {
         s.matches_on.dedup();
         s.field_chains.sort();
         s.field_chains.dedup();
+        s.recv_calls.sort();
+        s.recv_calls.dedup();
         // The token walker restarts at each ident, so `a.b.c` also yields
         // `b.c`. Keep only the longest form of each chain.
         let all = s.field_chains.clone();
@@ -105,6 +167,32 @@ impl BodyScan {
                 t.get(i + 3),
                 Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis
             );
+            // A receiver call inside a macro: `clock.now_ms()` in a
+            // `format!`, or `self.store.name()`. The walk restarts at every
+            // ident, so an ident right after a `.` is the middle of a chain
+            // already handled from its start, not a receiver of its own.
+            let after_dot = i > 0 && matches!(&t[i - 1], TokenTree::Punct(p) if p.as_char() == '.');
+            let line = m.span().start().line as u32;
+            if base == "self" && !is_call {
+                if let (
+                    Some(TokenTree::Punct(d)),
+                    Some(TokenTree::Ident(m2)),
+                    Some(TokenTree::Group(g)),
+                ) = (t.get(i + 3), t.get(i + 4), t.get(i + 5))
+                {
+                    if d.as_char() == '.' && g.delimiter() == Delimiter::Parenthesis {
+                        self.recv_calls.push(RecvCall {
+                            recv: format!("self.{m}"),
+                            method: m2.to_string(),
+                            line,
+                            ty: None,
+                            callee: None,
+                        });
+                    }
+                }
+            } else if base != "self" && is_call && !after_dot {
+                self.recv(base.to_string(), m.to_string(), line);
+            }
             match (base.to_string().as_str(), is_call) {
                 ("self", true) => self.self_calls.push(m.to_string()),
                 ("self", false) => {
@@ -203,18 +291,45 @@ impl<'ast> Visit<'ast> for BodyScan {
             self.panics
                 .push((node.method.to_string(), node.span().start().line as u32));
         }
+        let line = node.method.span().start().line as u32;
         if is_self(&node.receiver) {
             self.self_calls.push(node.method.to_string());
         } else if let Expr::Field(f) = &*node.receiver {
-            // `self.store.get()` reads the field, but the call belongs to
-            // whatever `store` is — not recorded.
+            // `self.store.get()` reads the field, and the call belongs to
+            // whatever `store` is: kept raw for the workbench, never an edge.
             if let Member::Named(id) = &f.member {
                 if is_self(&f.base) {
                     self.self_fields.push(id.to_string());
                     self.self_reads.push(id.to_string());
+                    self.recv_calls.push(RecvCall {
+                        recv: format!("self.{id}"),
+                        method: node.method.to_string(),
+                        line,
+                        ty: None,
+                        callee: None,
+                    });
                 } else {
                     self.foreign_fields.push(id.to_string());
                 }
+            }
+        } else if let Expr::Path(p) = strip(&node.receiver) {
+            // A bare name: a parameter, or a local. The workbench follows a
+            // parameter by its type, and a local by what its `let` declares.
+            if p.qself.is_none() {
+                if let Some(id) = p.path.get_ident() {
+                    self.recv(id.to_string(), node.method.to_string(), line);
+                }
+            }
+        } else if let Expr::Call(c) = strip(&node.receiver) {
+            // `Scanner::new(dir)?.run()`: the receiver is what the call returns.
+            if let Expr::Path(p) = &*c.func {
+                self.recv_calls.push(RecvCall {
+                    recv: "()".into(),
+                    method: node.method.to_string(),
+                    line,
+                    ty: None,
+                    callee: Some(path_string(&p.path)),
+                });
             }
         }
         visit::visit_expr_method_call(self, node);
@@ -248,6 +363,36 @@ impl<'ast> Visit<'ast> for BodyScan {
             }
         }
         visit::visit_expr_assign(self, node);
+    }
+
+    fn visit_local(&mut self, node: &'ast syn::Local) {
+        // The initialiser runs before the name is bound: `let x = f(x)`
+        // reads the old `x`.
+        visit::visit_local(self, node);
+        let (name, declared) = match &node.pat {
+            syn::Pat::Ident(p) => (p.ident.to_string(), None),
+            syn::Pat::Type(t) => match &*t.pat {
+                syn::Pat::Ident(p) => (p.ident.to_string(), type_path(&t.ty)),
+                _ => return,
+            },
+            _ => return,
+        };
+        let from_init = node.init.as_ref().and_then(|i| match strip(&i.expr) {
+            Expr::Call(c) => match &*c.func {
+                Expr::Path(p) => Some(Binding::Call(path_string(&p.path))),
+                _ => None,
+            },
+            Expr::Struct(s) => Some(Binding::Type(path_string(&s.path))),
+            _ => None,
+        });
+        match declared.map(Binding::Type).or(from_init) {
+            Some(b) => {
+                self.locals.insert(name, b);
+            }
+            None => {
+                self.locals.remove(&name);
+            }
+        }
     }
 
     fn visit_macro(&mut self, node: &'ast syn::Macro) {
