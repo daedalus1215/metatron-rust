@@ -227,6 +227,7 @@ pub fn update(
     base: &Baseline,
     project: &str,
     coverage: f64,
+    now: u64,
 ) -> (Baseline, UpdateOutcome) {
     let (cur, _) = current(report);
     let mut notes_preserved = 0;
@@ -247,7 +248,7 @@ pub fn update(
         .map(|(fp, e)| (fp.clone(), e.clone()))
         .collect();
 
-    let today = today();
+    let today = today_from(now);
     let mut progress = base.progress.clone();
     let n = violations.len();
     // One entry per acceptance, and one per day at most: re-running
@@ -272,7 +273,7 @@ pub fn update(
     (
         Baseline {
             version: 1,
-            generated_at: now_iso(),
+            generated_at: iso_from(now),
             project: project.to_string(),
             violations,
             progress,
@@ -282,13 +283,10 @@ pub fn update(
 }
 
 // ------------------------------------------------------------------ dates
-
-fn epoch_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+//
+// Pure functions of epoch seconds. The clock itself is a port — see
+// `clock.rs` — and the seconds enter this module as data, so the
+// formatting is testable without reaching for the system time.
 
 /// Civil date from a day count (Howard Hinnant's algorithm). Cheaper than
 /// a date crate for the one thing this file needs.
@@ -305,15 +303,16 @@ fn ymd(days: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-pub fn today() -> String {
-    let (y, m, d) = ymd((epoch_secs() / 86_400) as i64);
+/// The civil date the run happened on, UTC.
+pub fn today_from(secs: u64) -> String {
+    let (y, m, d) = ymd((secs / 86_400) as i64);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-pub fn now_iso() -> String {
-    let s = epoch_secs();
-    let (y, m, d) = ymd((s / 86_400) as i64);
-    let t = s % 86_400;
+/// UTC ISO-8601 timestamp.
+pub fn iso_from(secs: u64) -> String {
+    let (y, m, d) = ymd((secs / 86_400) as i64);
+    let t = secs % 86_400;
     format!(
         "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
         t / 3600,
@@ -330,4 +329,28 @@ pub fn gating_rules(report: &Report) -> Vec<&'static str> {
         .filter(|f: &&Finding| f.gates())
         .map(|f| f.id)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Fixed seconds, not a fixed clock: the formatting is a pure function
+    // now, so the test needs no fake at all (testing.md: "No fakes at
+    // all" for pure fns).
+    #[test]
+    fn dates_format_utc() {
+        assert_eq!(today_from(0), "1970-01-01");
+        assert_eq!(iso_from(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_from(1_761_234_567), "2025-10-23T15:49:27Z");
+        // The day rolls over in the date, not in the middle of a stamp.
+        assert_eq!(today_from(86_399), "1970-01-01");
+        assert_eq!(today_from(86_400), "1970-01-02");
+    }
+
+    #[test]
+    fn leap_day_is_a_date() {
+        // 2024-02-29T00:00:00Z = 1709164800.
+        assert_eq!(iso_from(1_709_164_800), "2024-02-29T00:00:00Z");
+    }
 }
